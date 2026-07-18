@@ -11,9 +11,11 @@ _SENSITIVE_PATTERN = re.compile(
     r"""(?ix)
     (?P<prefix>["']?(?:password|passwd|senha|pwd|token|secret|csc)["']?\s*[:=]\s*)
     (?:
-        (?P<quote>["'])(?P<quoted_value>.*?)(?P=quote)
+        "(?:\\.|[^"\\])*"
         |
-        (?P<plain_value>[^\s,;}\]]+)
+        '(?:\\.|[^'\\])*'
+        |
+        [^\s,;}\]]+
     )
     """
 )
@@ -26,11 +28,9 @@ def redact_text(value: str) -> str:
     return _SENSITIVE_PATTERN.sub(lambda match: f"{match.group('prefix')}[REDACTED]", value)
 
 
-class RedactingFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = redact_text(record.getMessage())
-        record.args = ()
-        return True
+class RedactingFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_text(super().format(record))
 
 
 def _handler(path: Path, level: int) -> RotatingFileHandler:
@@ -41,9 +41,33 @@ def _handler(path: Path, level: int) -> RotatingFileHandler:
         encoding="utf-8",
     )
     handler.setLevel(level)
-    handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
-    handler.addFilter(RedactingFilter())
+    handler.setFormatter(RedactingFormatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s"))
     return handler
+
+
+def _configure_handler(
+    root: logging.Logger,
+    role: str,
+    target: Path,
+    level: int,
+) -> None:
+    expected = target.resolve()
+    active_handler: logging.Handler | None = None
+
+    for handler in list(root.handlers):
+        if getattr(handler, "_siaf_role", None) != role:
+            continue
+        current_file = getattr(handler, "baseFilename", None)
+        if active_handler is None and current_file and Path(current_file).resolve() == expected:
+            active_handler = handler
+            continue
+        root.removeHandler(handler)
+        handler.close()
+
+    if active_handler is None:
+        active_handler = _handler(target, level)
+        active_handler._siaf_role = role  # type: ignore[attr-defined]
+        root.addHandler(active_handler)
 
 
 def configure_logging(paths: AppPaths | None = None) -> Path:
@@ -51,14 +75,6 @@ def configure_logging(paths: AppPaths | None = None) -> Path:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
-    configured_roles = {getattr(handler, "_siaf_role", None) for handler in root.handlers}
-    if "app" not in configured_roles:
-        app_handler = _handler(resolved.logs / "app.log", logging.INFO)
-        app_handler._siaf_role = "app"  # type: ignore[attr-defined]
-        root.addHandler(app_handler)
-
-    if "errors" not in configured_roles:
-        error_handler = _handler(resolved.logs / "errors.log", logging.ERROR)
-        error_handler._siaf_role = "errors"  # type: ignore[attr-defined]
-        root.addHandler(error_handler)
+    _configure_handler(root, "app", resolved.logs / "app.log", logging.INFO)
+    _configure_handler(root, "errors", resolved.logs / "errors.log", logging.ERROR)
     return resolved.logs

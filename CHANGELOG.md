@@ -46,3 +46,13 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 - Build pode ser iniciado de qualquer diretório e inclui lint antes dos testes.
 - Cobertura ampliada de 38% para 73%, com 42 testes automatizados.
 - Fundação da Fase 1 encerrada com 50 testes automatizados e cobertura total mantida em 73%.
+
+### Corrigido após a Fase 1
+
+- Sanitização passa a abranger o texto final formatado, incluindo traceback e stack trace.
+- Valores sensíveis com aspas escapadas são removidos integralmente.
+- Reconfigurar o diretório de logs fecha os handlers anteriores e passa a escrever somente no
+  novo destino.
+- `%LOCALAPPDATA%` vazio ou relativo usa o diretório pessoal como fallback absoluto.
+- Suíte ampliada para 55 testes e cobertura total elevada para 74%.
+- Executável x86 reconstruído e aprovado em smoke test com duas bases e log de erros vazio.

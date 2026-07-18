@@ -1116,8 +1116,9 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 > **Concluída em 2026-07-18.** A estrutura do projeto, dependências, documentação e paths por
 > usuário foram homologados. Logs rotativos e sanitização de credenciais foram comprovados
-> por testes no runtime Python x86. A suíte encerrou a fase com 50 testes e 73% de cobertura.
-> Consulte `docs/phase-1-status.md`.
+> por testes no runtime Python x86. A revisão pós-fase também cobriu tracebacks, valores com
+> escape, troca do destino dos logs e variáveis de perfil inválidas. A suíte encerrou a
+> estabilização com 55 testes e 74% de cobertura. Consulte `docs/phase-1-status.md`.
 
 **Entregas:**
 

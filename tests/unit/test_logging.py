@@ -38,6 +38,13 @@ def test_redacts_common_credential_shapes(text, secrets):
     assert redacted.count("[REDACTED]") == len(secrets)
 
 
+def test_redacts_entire_quoted_value_with_escaped_quote():
+    redacted = redact_text(r"""{"password": "first\"leaked-tail"}""")
+
+    assert redacted == '{"password": [REDACTED]}'
+    assert "leaked-tail" not in redacted
+
+
 def test_rotating_log_handler_redacts_formatted_arguments(tmp_path, isolated_root_logger):
     paths = AppPaths(tmp_path, tmp_path / "data", tmp_path / "logs", tmp_path / "exports")
     configure_logging(paths)
@@ -46,6 +53,22 @@ def test_rotating_log_handler_redacts_formatted_arguments(tmp_path, isolated_roo
         handler.flush()
     content = (paths.logs / "errors.log").read_text(encoding="utf-8")
     assert "secret-value" not in content
+    assert "password=[REDACTED]" in content
+
+
+def test_log_formatter_redacts_credentials_from_traceback(tmp_path, isolated_root_logger):
+    paths = AppPaths(tmp_path, tmp_path / "data", tmp_path / "logs", tmp_path / "exports")
+    configure_logging(paths)
+
+    try:
+        raise RuntimeError("password=traceback-secret")
+    except RuntimeError:
+        logging.getLogger("security-test").exception("detector failed")
+
+    for handler in isolated_root_logger.handlers:
+        handler.flush()
+    content = (paths.logs / "errors.log").read_text(encoding="utf-8")
+    assert "traceback-secret" not in content
     assert "password=[REDACTED]" in content
 
 
@@ -58,6 +81,33 @@ def test_logging_configuration_is_idempotent(tmp_path, isolated_root_logger):
     roles = [getattr(handler, "_siaf_role", None) for handler in isolated_root_logger.handlers]
     assert roles.count("app") == 1
     assert roles.count("errors") == 1
+
+
+def test_logging_reconfiguration_moves_handlers_to_new_paths(tmp_path, isolated_root_logger):
+    first_root = tmp_path / "first"
+    second_root = tmp_path / "second"
+    first = AppPaths(
+        first_root,
+        first_root / "data",
+        first_root / "logs",
+        first_root / "exports",
+    )
+    second = AppPaths(
+        second_root,
+        second_root / "data",
+        second_root / "logs",
+        second_root / "exports",
+    )
+
+    configure_logging(first)
+    returned = configure_logging(second)
+    logging.getLogger("reconfiguration-test").info("new-destination-marker")
+    for handler in isolated_root_logger.handlers:
+        handler.flush()
+
+    assert returned == second.logs
+    assert "new-destination-marker" in (second.logs / "app.log").read_text(encoding="utf-8")
+    assert "new-destination-marker" not in (first.logs / "app.log").read_text(encoding="utf-8")
 
 
 def test_app_log_rotates_when_size_limit_is_reached(tmp_path, isolated_root_logger):

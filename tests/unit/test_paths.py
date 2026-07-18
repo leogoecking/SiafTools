@@ -42,3 +42,22 @@ def test_for_user_falls_back_to_home(monkeypatch, tmp_path):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
 
     assert AppPaths.for_user().root == tmp_path / "SIAF Support Toolbox"
+
+
+def test_for_user_falls_back_to_home_when_local_app_data_is_empty(monkeypatch, tmp_path):
+    monkeypatch.delenv("SIAF_TOOLBOX_HOME", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", "")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    paths = AppPaths.for_user()
+
+    assert paths.root == tmp_path / "SIAF Support Toolbox"
+    assert paths.root.is_absolute()
+
+
+def test_for_user_rejects_relative_local_app_data(monkeypatch, tmp_path):
+    monkeypatch.delenv("SIAF_TOOLBOX_HOME", raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", "relative-profile")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+
+    assert AppPaths.for_user().root == tmp_path / "SIAF Support Toolbox"

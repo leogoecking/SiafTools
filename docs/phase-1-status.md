@@ -17,8 +17,8 @@ runtime Python 3.11 x86 usado pelo build.
 ## Evidências automatizadas
 
 - Runtime: Python 3.11.9 x86, compatível com o build de 32 bits.
-- Testes: 50 aprovados.
-- Cobertura total: 73%.
+- Testes: 55 aprovados após a revisão pós-fase.
+- Cobertura total: 74%.
 - Cobertura de `core/paths.py`: 100%.
 - Cobertura de `core/logging_config.py`: 100%.
 - Rotação comprovada pela criação de `app.log.1` ao atingir o limite configurado no teste.
@@ -37,3 +37,17 @@ runtime Python 3.11 x86 usado pelo build.
 
 Nenhuma base Firebird foi alterada nesta fase. A Fase 2 só deve começar após o aceite deste
 resultado.
+
+## Estabilização pós-fase
+
+A revisão posterior encontrou e corrigiu quatro casos que não estavam cobertos inicialmente:
+
+- credenciais presentes no texto de tracebacks;
+- valores sensíveis com aspas escapadas;
+- troca do diretório de logs dentro do mesmo processo;
+- `%LOCALAPPDATA%` presente, porém vazio ou relativo.
+
+Cada caso recebeu um teste de regressão. Uma reprodução independente confirmou ausência do
+segredo sintético no traceback, remoção integral do valor com escape, escrita no novo destino
+e fallback absoluto pelo perfil do usuário. O build x86 foi regenerado e o smoke test terminou
+com duas bases detectadas, zero avisos e arquivo de erros vazio.
