@@ -1,0 +1,53 @@
+UTILITÁRIO — CÓPIA DE PRODUTOS SIAF POR LOTES
+
+O arquivo copiar_produtos_siaf.py copia a tabela DSIAF006 de uma base
+SIAFLOJA.FDB para outra, em lotes pequenos.
+
+COPIA:
+- Cadastro completo dos produtos existente na DSIAF006.
+- Estoque atual PRO_EST.
+- Somente produtos ainda inexistentes no destino.
+
+NÃO COPIA:
+- Notas fiscais.
+- Entradas.
+- Vendas.
+- PDV.
+- Financeiro.
+- Histórico de movimentação.
+
+REQUISITOS:
+1. Python instalado.
+2. Cliente Firebird compatível instalado no computador.
+3. Biblioteca:
+   py -m pip install fdb
+
+SEGURANÇA:
+1. Fechar ou impedir movimentações nas duas lojas durante a operação.
+2. Fazer backup das duas bases.
+3. Rodar primeiro em modo validar.
+4. Conferir quantidade de produtos e compatibilidade das colunas.
+5. Só depois executar a cópia.
+
+EXEMPLO — SOMENTE VALIDAR:
+py copiar_produtos_siaf.py ^
+  --origem "localhost:C:\SIAF\LOJA1\SIAFLOJA.FDB" ^
+  --destino "localhost:C:\SIAF\LOJA2\SIAFLOJA.FDB" ^
+  --usuario SYSDBA ^
+  --modo validar
+
+EXEMPLO — EXECUTAR APÓS BACKUP:
+py copiar_produtos_siaf.py ^
+  --origem "localhost:C:\SIAF\LOJA1\SIAFLOJA.FDB" ^
+  --destino "localhost:C:\SIAF\LOJA2\SIAFLOJA.FDB" ^
+  --usuario SYSDBA ^
+  --lote 200 ^
+  --modo copiar ^
+  --confirmar COPIAR_DSIAF006
+
+OBSERVAÇÕES:
+- A senha é solicitada sem aparecer na tela.
+- Produtos com PRO_COD já existente no destino são preservados.
+- O script não atualiza o estoque de produtos que já existam no destino.
+- Para substituir estoques existentes, é necessário outro procedimento,
+  com validação expressa para evitar perda de saldo.
