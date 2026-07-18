@@ -21,10 +21,17 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 - Atalho `Validar_Bases.cmd` mantém o resultado visível e salva relatório sem credenciais.
 - Fase 0 concluída após conexão bem-sucedida às duas bases e execução do build no Windows
   Sandbox sem Python instalado.
+- Fase 1 concluída com estrutura do repositório, dependências, documentação e diretórios de
+  dados por usuário homologados.
+- Testes de paths para override, `%LOCALAPPDATA%`, fallback do perfil e criação de diretórios.
+- Teste de rotação real dos logs com criação do arquivo de backup.
+- Sanitização ampliada para credenciais simples, entre aspas e em estruturas semelhantes a
+  dicionários.
+- Configuração de logging idempotente, sem duplicar os handlers de aplicação e erros.
+- Build x86 regenerado e aprovado em smoke test após as mudanças da fundação.
 
 ### Limitações conhecidas
 
-- Atalhos `.lnk` são identificados como evidência, mas seu destino ainda não é resolvido.
 - Cenários de terminal remoto e matriz ampliada Windows 10/11 ainda não homologados.
 
 ### Corrigido após a Fase 0
@@ -38,3 +45,4 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 - Serviços removidos durante a enumeração não geram aviso falso.
 - Build pode ser iniciado de qualquer diretório e inclui lint antes dos testes.
 - Cobertura ampliada de 38% para 73%, com 42 testes automatizados.
+- Fundação da Fase 1 encerrada com 50 testes automatizados e cobertura total mantida em 73%.

@@ -3,10 +3,15 @@
 Aplicação desktop Windows para descobrir com segurança um ambiente SIAF/Firebird e, após
 validação, oferecer consultas de suporte em modo somente leitura.
 
-O projeto está na **Fase 0**. A entrega atual cobre a fundação do repositório e uma prova de
-descoberta: arquitetura do processo, processos/serviços, Registro do Windows, bibliotecas
-cliente Firebird, conexões TCP do SIAF e candidatos limitados a `SIAFW.FDB` e
-`SIAFLOJA.FDB`. Consultas funcionais e operações de escrita ainda não fazem parte desta fase.
+As **Fases 0 e 1 estão concluídas**. A entrega atual cobre a fundação do repositório e uma
+prova de descoberta: arquitetura do processo, processos/serviços, Registro do Windows,
+bibliotecas cliente Firebird, conexões TCP do SIAF e candidatos limitados a `SIAFW.FDB` e
+`SIAFLOJA.FDB`. Consultas funcionais e operações de escrita ainda não fazem parte da entrega.
+
+Dados, logs e exportações são armazenados no perfil do usuário em
+`%LOCALAPPDATA%\SIAF Support Toolbox`. A variável `SIAF_TOOLBOX_HOME` permite usar outro
+diretório em desenvolvimento e testes. Os logs têm rotação automática e sanitização de
+credenciais conhecidas.
 
 ## Requisito de arquitetura
 
