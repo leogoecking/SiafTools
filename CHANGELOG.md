@@ -29,6 +29,13 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
   dicionários.
 - Configuração de logging idempotente, sem duplicar os handlers de aplicação e erros.
 - Build x86 regenerado e aprovado em smoke test após as mudanças da fundação.
+- Fase 2 concluída com interface desktop estruturada em menu lateral, topo, conteúdo e rodapé
+  persistentes.
+- Onze páginas previstas no roadmap, mantendo recursos futuros apenas como placeholders.
+- Temas claro e escuro com preferência persistida no perfil do usuário.
+- Tamanho, posição, estado maximizado e última página salvos em `window-state.json`.
+- Diálogo modal reutilizável e smoke test isolado da interface.
+- Descoberta migrada para worker daemon, permitindo fechamento imediato durante a análise.
 
 ### Limitações conhecidas
 

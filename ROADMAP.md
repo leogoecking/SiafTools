@@ -1135,6 +1135,11 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 ### Fase 2 — Interface base
 
+> **Concluída em 2026-07-18.** A interface desktop recebeu menu lateral, barras persistentes,
+> onze páginas, temas claro/escuro, persistência da janela e diálogo reutilizável. Navegação e
+> fechamento foram aprovados em smoke test isolado e no executável x86. A fase encerrou com
+> 65 testes e 83% de cobertura combinada. Consulte `docs/phase-2-status.md`.
+
 **Entregas:**
 
 - Janela principal.

@@ -3,15 +3,20 @@
 Aplicação desktop Windows para descobrir com segurança um ambiente SIAF/Firebird e, após
 validação, oferecer consultas de suporte em modo somente leitura.
 
-As **Fases 0 e 1 estão concluídas**. A entrega atual cobre a fundação do repositório e uma
-prova de descoberta: arquitetura do processo, processos/serviços, Registro do Windows,
-bibliotecas cliente Firebird, conexões TCP do SIAF e candidatos limitados a `SIAFW.FDB` e
-`SIAFLOJA.FDB`. Consultas funcionais e operações de escrita ainda não fazem parte da entrega.
+As **Fases 0, 1 e 2 estão concluídas**. A entrega atual cobre a fundação do repositório, a
+interface desktop e uma prova de descoberta: arquitetura do processo, processos/serviços,
+Registro do Windows, bibliotecas cliente Firebird, conexões TCP do SIAF e candidatos limitados
+a `SIAFW.FDB` e `SIAFLOJA.FDB`. Consultas funcionais e operações de escrita ainda não fazem
+parte da entrega.
 
 Dados, logs e exportações são armazenados no perfil do usuário em
 `%LOCALAPPDATA%\SIAF Support Toolbox`. A variável `SIAF_TOOLBOX_HOME` permite usar outro
 diretório em desenvolvimento e testes. Os logs têm rotação automática e sanitização de
 credenciais conhecidas.
+
+A interface possui menu lateral com as áreas previstas no roadmap, temas claro e escuro e
+persistência de tamanho, posição, estado e última página. Os módulos de fases futuras aparecem
+somente como páginas preparadas, sem executar consultas ou operações.
 
 ## Requisito de arquitetura
 
@@ -48,6 +53,7 @@ não encerram a aplicação.
 python -m pytest
 python scripts\check_runtime.py
 python scripts\diagnose.py --json
+python scripts\ui_smoke.py
 ```
 
 O diagnóstico não solicita nem registra credenciais. Caminhos podem conter informações do
