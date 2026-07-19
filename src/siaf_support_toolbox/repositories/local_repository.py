@@ -106,14 +106,16 @@ class LocalRepository:
                 environment_id = int(cursor.lastrowid)
 
             for candidate in report.databases:
-                self._upsert_database(
-                    connection,
-                    environment_id,
-                    candidate,
-                    endpoint_host,
-                    endpoint_port,
-                    now,
-                )
+                candidate_ports = _candidate_ports(report, candidate.path, endpoint_port)
+                for candidate_port in candidate_ports:
+                    self._upsert_database(
+                        connection,
+                        environment_id,
+                        candidate,
+                        endpoint_host,
+                        candidate_port,
+                        now,
+                    )
             return environment_id
 
     @staticmethod
@@ -592,6 +594,24 @@ def _endpoint(report: DiscoveryReport) -> tuple[str | None, int | None]:
         return reference.host, reference.port
     port = report.detected_ports[0] if report.detected_ports else None
     return None, port
+
+
+def _candidate_ports(
+    report: DiscoveryReport,
+    database_path: str,
+    fallback_port: int | None,
+) -> list[int | None]:
+    path_key = _path_key(database_path)
+    ports = {
+        configuration.port
+        for configuration in report.firebird_configurations
+        if any(_path_key(alias.database) == path_key for alias in configuration.aliases)
+    }
+    return sorted(ports) if ports else [fallback_port]
+
+
+def _path_key(value: str) -> str:
+    return value.replace("/", "\\").casefold()
 
 
 def _is_local_host(host: str) -> bool:

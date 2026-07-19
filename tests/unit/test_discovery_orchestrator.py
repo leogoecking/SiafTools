@@ -9,6 +9,7 @@ from siaf_support_toolbox.discovery.models import (
     DatabaseCandidate,
     FirebirdConfigurationFinding,
     MachineMode,
+    NetworkFinding,
     ProcessFinding,
     RegistryFinding,
     ServiceFinding,
@@ -131,3 +132,23 @@ def test_orchestrator_turns_unexpected_detector_error_into_issue(monkeypatch):
         for issue in report.issues
     )
     assert report.mode == MachineMode.ASSISTED
+
+
+def test_orchestrator_uses_nonstandard_firebird_port_observed_from_siaf(monkeypatch):
+    patch_base_detectors(monkeypatch)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "detect_siaf_processes",
+        lambda: ([ProcessFinding(10, "SIAFW.EXE", "C:/SIAF/SIAFW.EXE")], []),
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "detect_process_connections",
+        lambda _pids: ([NetworkFinding(10, "10.0.0.2", 50000, "10.0.0.10", 3055)], []),
+    )
+
+    report = DiscoveryOrchestrator().discover()
+
+    assert 3055 in report.detected_ports
+    assert report.mode == MachineMode.TERMINAL
+    assert report.confidence >= 45

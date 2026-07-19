@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
+import re
 import socket
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 
 from siaf_support_toolbox.discovery.architecture import pe_architecture, process_architecture
 from siaf_support_toolbox.discovery.schema_classifier import (
@@ -22,6 +25,11 @@ class FirebirdProbeResult:
     message: str | None = None
     server_version: str | None = None
     ods_version: str | None = None
+
+
+_API_LOAD_LOCK = Lock()
+_SUPPORTED_FIREBIRD_VERSION = re.compile(r"(?<!\d)2\.5\.7(?:\.\d+)?(?!\d)")
+_SUPPORTED_ODS_VERSION = re.compile(r"(?<!\d)11\.2(?!\d)")
 
 
 def probe_read_only(
@@ -63,7 +71,18 @@ def probe_read_only(
     connection = None
     cursor = None
     try:
-        fdb.load_api(str(library_path))
+        loaded_library = _load_api_library(fdb, library_path)
+        if loaded_library is not None:
+            return FirebirdProbeResult(
+                False,
+                None,
+                None,
+                "client_library_already_loaded",
+                (
+                    "Outra DLL Firebird já está carregada nesta sessão. "
+                    "Reinicie o aplicativo para trocar a biblioteca cliente"
+                ),
+            )
         connection = fdb.connect(dsn=dsn, user=username, password=password, charset=charset)
         read_only_tpb = getattr(fdb, "ISOLATION_LEVEL_READ_COMMITED_RO", None)
         if read_only_tpb is None:
@@ -77,7 +96,9 @@ def probe_read_only(
             )
         connection.begin(tpb=read_only_tpb)
         cursor = connection.cursor()
-        server_version = _string_attribute(connection, "engine_version")
+        server_version = _string_attribute(connection, "version") or _string_attribute(
+            connection, "engine_version"
+        )
         ods_version = _string_attribute(connection, "ods")
         cursor.execute("SELECT CURRENT_TIMESTAMP FROM RDB$DATABASE")
         current_timestamp = str(cursor.fetchone()[0])
@@ -103,6 +124,18 @@ def probe_read_only(
             else:
                 code = "low_schema_confidence"
                 message = "A base possui poucos indícios para ser aceita como uma base SIAF"
+            return FirebirdProbeResult(
+                False,
+                current_timestamp,
+                classification,
+                code,
+                message,
+                server_version,
+                ods_version,
+            )
+        compatibility_issue = runtime_compatibility_issue(server_version, ods_version)
+        if compatibility_issue is not None:
+            code, message = compatibility_issue
             return FirebirdProbeResult(
                 False,
                 current_timestamp,
@@ -160,3 +193,44 @@ def _port_reachable(host: str, port: int, timeout: float) -> bool:
 def _string_attribute(value: object, name: str) -> str | None:
     attribute = getattr(value, name, None)
     return str(attribute) if attribute not in (None, "") else None
+
+
+def runtime_compatibility_issue(
+    server_version: str | None,
+    ods_version: str | None,
+) -> tuple[str, str] | None:
+    if not server_version:
+        return (
+            "firebird_version_unconfirmed",
+            "A versão do servidor Firebird não pôde ser confirmada",
+        )
+    if not _SUPPORTED_FIREBIRD_VERSION.search(server_version):
+        return (
+            "unsupported_firebird_version",
+            "Apenas Firebird 2.5.7 é aceito nesta versão da ferramenta",
+        )
+    if not ods_version:
+        return ("ods_version_unconfirmed", "A versão ODS da base não pôde ser confirmada")
+    if not _SUPPORTED_ODS_VERSION.search(ods_version):
+        return (
+            "unsupported_ods_version",
+            "A base não utiliza a estrutura ODS 11.2 esperada para Firebird 2.5",
+        )
+    return None
+
+
+def _load_api_library(fdb_module: object, requested_path: Path) -> str | None:
+    with _API_LOAD_LOCK:
+        api = fdb_module.load_api(str(requested_path))  # type: ignore[attr-defined]
+    loaded_path = getattr(api, "client_library_name", None)
+    if not loaded_path or _same_library(requested_path, str(loaded_path)):
+        return None
+    return str(loaded_path)
+
+
+def _same_library(requested_path: Path, loaded_path: str) -> bool:
+    requested = os.path.normcase(str(requested_path.resolve(strict=False)))
+    loaded = Path(loaded_path)
+    if loaded.is_absolute():
+        return requested == os.path.normcase(str(loaded.resolve(strict=False)))
+    return os.path.normcase(requested_path.name) == os.path.normcase(loaded.name)

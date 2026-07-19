@@ -1189,7 +1189,10 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 > e remotas a partir de evidências do SIAF, valida cada base em modo somente leitura fora da
 > thread da interface e persiste somente metadados técnicos. O fallback avançado, a tradução
 > de falhas e a exportação de diagnóstico sem credenciais também estão disponíveis. A suíte
-> possui 94 testes, 85% de cobertura combinada e build PyInstaller x86 aprovado em smoke.
+> possui 100 testes, 85% de cobertura combinada e build PyInstaller x86 aprovado em smoke.
+> A estabilização passou a bloquear versões diferentes de Firebird 2.5.7/ODS 11.2, detectar
+> portas remotas `3050–3099` observadas pelo SIAF, preservar a porta de cada instância e impedir
+> troca silenciosa da DLL cliente durante a sessão.
 > Permanecem pendentes a autenticação pela nova tela em uma base real e a homologação em um
 > terminal conectado a servidor remoto. Consulte `docs/phase-4-status.md`.
 

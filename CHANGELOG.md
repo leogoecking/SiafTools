@@ -121,3 +121,18 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 - Falhas ao abrir o SQLite no bootstrap são registradas e exibem orientação ao usuário sem
   apagar ou substituir o arquivo existente.
 - Suíte ampliada para 85 testes, mantendo cobertura combinada em 87%.
+
+### Corrigido durante a homologação da Fase 4
+
+- Validações com versão diferente de Firebird 2.5.7 ou ODS diferente de 11.2 são bloqueadas e
+  persistidas como incompatíveis, mesmo se um probe injetado informar sucesso indevido.
+- Conexões estabelecidas pelo processo SIAF nas portas `3050–3099` passam a alimentar a
+  descoberta, permitindo reconhecer instâncias Firebird próximas à porta padrão.
+- Cada alias e base associada a uma configuração Firebird preserva a porta da própria
+  instância no plano de conexão e no SQLite.
+- A ferramenta compara a DLL solicitada com a biblioteca realmente mantida pelo driver e pede
+  reinicialização quando uma troca na mesma sessão seria ignorada pelo `fdb`.
+- Seis regressões automatizadas cobrem os quatro cenários; a suíte foi ampliada para 100 testes
+  com 85% de cobertura combinada.
+- Executável x86 reconstruído e aprovado em inicialização, descoberta e fechamento normal,
+  mantendo `errors.log` vazio.

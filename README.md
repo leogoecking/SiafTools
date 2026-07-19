@@ -11,8 +11,10 @@ próximas ao SIAF, bibliotecas cliente Firebird, conexões TCP e candidatos limi
 
 Na página **Ambiente detectado**, o botão **Validar conexão** solicita usuário e senha apenas
 para a tentativa atual, prepara os endpoints automaticamente e classifica a base pelo catálogo
-antes de aceitá-la. **Opções avançadas** é um fallback para ambientes que não puderam ser
-resolvidos automaticamente. O diagnóstico técnico pode ser exportado pela mesma página com
+antes de aceitá-la. A validação também exige Firebird 2.5.7 e ODS 11.2. **Opções avançadas** é
+um fallback para ambientes que não puderam ser resolvidos automaticamente; se outra DLL já
+estiver carregada, o aplicativo solicita uma reinicialização em vez de ignorar silenciosamente
+a biblioteca selecionada. O diagnóstico técnico pode ser exportado pela mesma página com
 caminhos mascarados e sem credenciais.
 
 Dados, logs e exportações são armazenados no perfil do usuário em

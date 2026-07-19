@@ -108,10 +108,6 @@ class DiscoveryOrchestrator:
             for configuration in report.firebird_configurations
             for alias in configuration.aliases
         ]
-        report.detected_ports = sorted(
-            {configuration.port for configuration in report.firebird_configurations}
-            | {reference.port for reference in report.connection_references}
-        ) or [DEFAULT_FIREBIRD_PORT]
         alias_paths = [Path(item.database) for item in report.aliases]
 
         report.client_libraries, issues = self._safe(
@@ -130,6 +126,16 @@ class DiscoveryOrchestrator:
             ([],),
         )
         report.issues.extend(issues)
+        network_candidate_ports = {
+            item.remote_port
+            for item in report.network_connections
+            if DEFAULT_FIREBIRD_PORT <= item.remote_port < DEFAULT_FIREBIRD_PORT + 100
+        }
+        report.detected_ports = sorted(
+            {configuration.port for configuration in report.firebird_configurations}
+            | {reference.port for reference in report.connection_references}
+            | network_candidate_ports
+        ) or [DEFAULT_FIREBIRD_PORT]
 
         report.mode, report.confidence, mode_evidence = classify_machine(report)
         report.evidence.extend(mode_evidence)

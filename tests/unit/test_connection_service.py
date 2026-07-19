@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from siaf_support_toolbox.database.firebird_probe import FirebirdProbeResult
 from siaf_support_toolbox.database.sqlite_connection import SQLiteDatabase
 from siaf_support_toolbox.discovery.models import (
@@ -7,6 +9,7 @@ from siaf_support_toolbox.discovery.models import (
     ClientLibraryFinding,
     DatabaseCandidate,
     DiscoveryReport,
+    FirebirdConfigurationFinding,
     MachineMode,
     NetworkFinding,
 )
@@ -147,3 +150,56 @@ def test_missing_compatible_client_returns_grounded_plan_issue(tmp_path):
 
     assert plan.targets == ()
     assert "x86" in plan.issues[0]
+
+
+def test_service_defensively_rejects_success_from_unsupported_firebird(tmp_path):
+    database, repository = make_repository(tmp_path)
+    report = make_report("D:/Dados/SIAFLOJA.FDB")
+    repository.record_discovery("PC", report)
+    unsupported = replace(accepted_result(), server_version="4.0.5", ods_version="13.0")
+    service = FirebirdConnectionService(
+        repository,
+        machine_name="PC",
+        probe=lambda **_kwargs: unsupported,
+    )
+
+    summary = service.validate(
+        service.build_plan(report), SessionCredentials("SUPORTE", "TEMPORARIA")
+    )
+
+    assert not summary.successful
+    assert summary.validations[0].result.error_code == "unsupported_firebird_version"
+    with database.connect() as connection:
+        stored = connection.execute(
+            "SELECT compatibility_status, selected FROM discovered_databases"
+        ).fetchone()
+    assert (stored["compatibility_status"], stored["selected"]) == ("incompatible", 0)
+
+
+def test_multiple_firebird_instances_keep_their_own_ports(tmp_path):
+    _database, repository = make_repository(tmp_path)
+    first_path = "D:/LojaA/SIAFLOJA.FDB"
+    second_path = "D:/LojaB/SIAFLOJA.FDB"
+    from siaf_support_toolbox.discovery.models import AliasFinding
+
+    first_alias = AliasFinding("LOJA_A", first_path, "C:/FB1/aliases.conf")
+    second_alias = AliasFinding("LOJA_B", second_path, "C:/FB2/aliases.conf")
+    report = make_report(first_path)
+    report.databases.append(DatabaseCandidate(second_path, "SIAFLOJA", 100, 90))
+    report.aliases = [first_alias, second_alias]
+    report.firebird_configurations = [
+        FirebirdConfigurationFinding("C:/FB1", 3050, aliases=(first_alias,)),
+        FirebirdConfigurationFinding("C:/FB2", 3055, aliases=(second_alias,)),
+    ]
+    report.detected_ports = [3050, 3055]
+    repository.record_discovery("SERVIDOR", report)
+
+    plan = FirebirdConnectionService(repository, machine_name="SERVIDOR").build_plan(report)
+    ports_by_target = {(target.database_path, target.port) for target in plan.targets}
+
+    assert (first_path, 3050) in ports_by_target
+    assert (second_path, 3055) in ports_by_target
+    assert ("LOJA_A", 3050) in ports_by_target
+    assert ("LOJA_B", 3055) in ports_by_target
+    assert (second_path, 3050) not in ports_by_target
+    assert ("LOJA_B", 3050) not in ports_by_target

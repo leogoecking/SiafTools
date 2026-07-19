@@ -5,12 +5,16 @@ import hashlib
 import platform
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 
 from siaf_support_toolbox.core.constants import DEFAULT_FIREBIRD_PORT
 from siaf_support_toolbox.core.version import __version__
-from siaf_support_toolbox.database.firebird_probe import FirebirdProbeResult, probe_read_only
+from siaf_support_toolbox.database.firebird_probe import (
+    FirebirdProbeResult,
+    probe_read_only,
+    runtime_compatibility_issue,
+)
 from siaf_support_toolbox.discovery.models import DiscoveryReport, MachineMode
 from siaf_support_toolbox.repositories.local_repository import LocalRepository
 from siaf_support_toolbox.repositories.models import ExecutionRecord, ManualConnectionProfile
@@ -113,37 +117,68 @@ class FirebirdConnectionService:
             )
 
         targets: list[ConnectionTarget] = []
-        databases_by_path = {
-            str(item["database_path"]).casefold(): item for item in environment["databases"]
-        }
         port = int(environment.get("detected_port") or DEFAULT_FIREBIRD_PORT)
         host = str(environment.get("detected_host") or "localhost")
+        databases_by_endpoint = {
+            (
+                _path_key(str(item["database_path"])),
+                int(item.get("database_port") or port),
+            ): item
+            for item in environment["databases"]
+        }
+        ports_by_database: dict[str, set[int]] = {}
+        configured_aliases: set[tuple[str, str, str]] = set()
+        for configuration in report.firebird_configurations:
+            for alias in configuration.aliases:
+                ports_by_database.setdefault(_path_key(alias.database), set()).add(
+                    configuration.port
+                )
+                configured_aliases.add(_alias_key(alias.alias, alias.database, alias.source_file))
 
         if report.mode != MachineMode.TERMINAL:
             for candidate in report.databases:
-                stored = databases_by_path.get(candidate.path.casefold())
+                candidate_ports = ports_by_database.get(_path_key(candidate.path), {port})
+                for candidate_port in sorted(candidate_ports):
+                    stored = databases_by_endpoint.get((_path_key(candidate.path), candidate_port))
+                    targets.append(
+                        ConnectionTarget(
+                            int(environment["id"]),
+                            int(stored["id"]) if stored else None,
+                            "localhost",
+                            candidate_port,
+                            candidate.path,
+                            candidate.kind_hint,
+                            library,
+                            (
+                                "descoberta_validada"
+                                if stored and stored.get("compatibility_status") == "compatible"
+                                else "descoberta_local"
+                            ),
+                            max(candidate.score, int(stored.get("confidence_score") or 0))
+                            if stored
+                            else candidate.score,
+                        )
+                    )
+
+        alias_host = host if report.mode == MachineMode.TERMINAL else "localhost"
+        for configuration in report.firebird_configurations:
+            for alias in configuration.aliases:
                 targets.append(
                     ConnectionTarget(
                         int(environment["id"]),
-                        int(stored["id"]) if stored else None,
-                        "localhost",
-                        port,
-                        candidate.path,
-                        candidate.kind_hint,
+                        None,
+                        alias_host,
+                        configuration.port,
+                        alias.alias,
+                        "DESCONHECIDA",
                         library,
-                        (
-                            "descoberta_validada"
-                            if stored and stored.get("compatibility_status") == "compatible"
-                            else "descoberta_local"
-                        ),
-                        max(candidate.score, int(stored.get("confidence_score") or 0))
-                        if stored
-                        else candidate.score,
+                        "alias_firebird_instancia",
+                        75,
                     )
                 )
-
-        alias_host = host if report.mode == MachineMode.TERMINAL else "localhost"
         for alias in report.aliases:
+            if _alias_key(alias.alias, alias.database, alias.source_file) in configured_aliases:
+                continue
             targets.append(
                 ConnectionTarget(
                     int(environment["id"]),
@@ -249,6 +284,17 @@ class FirebirdConnectionService:
                     port=target.port,
                     connect_timeout=3.0,
                 )
+                if result.success:
+                    compatibility_issue = runtime_compatibility_issue(
+                        result.server_version, result.ods_version
+                    )
+                    if compatibility_issue is not None:
+                        result = replace(
+                            result,
+                            success=False,
+                            error_code=compatibility_issue[0],
+                            message=compatibility_issue[1],
+                        )
                 duration_ms = int((time.monotonic() - started) * 1000)
                 database_id = target.database_id
                 if result.classification is not None:
@@ -326,3 +372,11 @@ def _schema_signature(result: FirebirdProbeResult) -> str:
         [str(classification.database_type), *sorted(classification.matched_tables)]
     ).encode("utf-8")
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _path_key(value: str) -> str:
+    return value.replace("/", "\\").casefold()
+
+
+def _alias_key(alias: str, database: str, source_file: str) -> tuple[str, str, str]:
+    return alias.casefold(), _path_key(database), _path_key(source_file)

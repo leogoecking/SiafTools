@@ -44,14 +44,14 @@ precisa ser homologado em um ambiente real.
 - O plano automático preparou as duas conexões por `localhost` sem solicitar host, porta ou
   caminho.
 - Ruff e verificações do pipeline de build: aprovados.
-- Testes: 94 aprovados.
+- Testes: 100 aprovados.
 - Cobertura combinada da suíte e do smoke da interface: 85%.
 - Smoke da interface visitou as onze páginas, abriu os diálogos de credenciais e fallback,
   apagou as credenciais de teste e fechou normalmente.
 - Executável PyInstaller `onedir` x86 iniciou, executou a descoberta, criou o SQLite e recebeu
   fechamento normal; `errors.log` permaneceu vazio.
 - SHA-256 do executável:
-  `0125A1DD2BDFDA45746300954EB930016AF83D5F5384296003B0F3702D71039F`.
+  `62100159A033781C277CD7504A7C837BD7E79507DC93EDEE21F8239315083ABA`.
 
 ## Segurança comprovada
 
@@ -82,3 +82,20 @@ precisa ser homologado em um ambiente real.
 
 Até essas provas serem registradas, a Fase 4 deve permanecer marcada como **em homologação** e
 a Fase 5 não deve ser iniciada.
+
+## Estabilização durante a homologação
+
+A revisão posterior corrigiu quatro casos não cobertos inicialmente:
+
+- Firebird 4/ODS 13 e demais combinações fora de Firebird 2.5.7/ODS 11.2 podiam ser marcadas
+  como compatíveis quando o esquema SIAF era reconhecido;
+- uma conexão ativa do SIAF na porta `3055` não alimentava a lista de portas Firebird e a
+  máquina permanecia em modo assistido;
+- aliases de instalações nas portas `3050` e `3055` eram enviados pela mesma porta do ambiente;
+- depois do primeiro `fdb.load_api`, selecionar outra DLL não tinha efeito e o aplicativo não
+  informava que a biblioteca anterior continuava carregada.
+
+O probe e o serviço agora aplicam a matriz de compatibilidade em duas camadas. A descoberta
+incorpora portas observadas na faixa usual de instâncias Firebird, e o plano mantém a associação
+entre configuração, alias, base e porta. A DLL efetivamente carregada é comparada com a
+solicitada; uma divergência interrompe a validação com orientação para reiniciar o aplicativo.
