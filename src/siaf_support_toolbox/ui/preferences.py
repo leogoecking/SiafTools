@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
+import time
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from threading import Lock
 from typing import Any
+from uuid import uuid4
 
 from siaf_support_toolbox.ui.navigation import DEFAULT_PAGE_ID, VALID_PAGE_IDS
 
@@ -15,6 +19,8 @@ DEFAULT_HEIGHT = 720
 MINIMUM_WIDTH = 900
 MINIMUM_HEIGHT = 600
 VALID_THEMES = frozenset({"light", "dark"})
+_SAVE_LOCK = Lock()
+_REPLACE_ATTEMPTS = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +37,8 @@ class WindowPreferences:
         self,
         screen_width: int | None = None,
         screen_height: int | None = None,
+        screen_x: int = 0,
+        screen_y: int = 0,
     ) -> WindowPreferences:
         width = max(MINIMUM_WIDTH, self.width)
         height = max(MINIMUM_HEIGHT, self.height)
@@ -42,11 +50,13 @@ class WindowPreferences:
         x = self.x
         y = self.y
         if screen_width:
-            x = x if x is not None else max(0, (screen_width - width) // 2)
-            x = max(0, min(x, max(0, screen_width - width)))
+            x = x if x is not None else screen_x + max(0, (screen_width - width) // 2)
+            maximum_x = screen_x + max(0, screen_width - width)
+            x = max(screen_x, min(x, maximum_x))
         if screen_height:
-            y = y if y is not None else max(0, (screen_height - height) // 2)
-            y = max(0, min(y, max(0, screen_height - height)))
+            y = y if y is not None else screen_y + max(0, (screen_height - height) // 2)
+            maximum_y = screen_y + max(0, screen_height - height)
+            y = max(screen_y, min(y, maximum_y))
 
         theme = self.theme if self.theme in VALID_THEMES else "light"
         selected_page = (
@@ -80,13 +90,18 @@ class WindowPreferencesStore:
             return WindowPreferences()
 
     def save(self, preferences: WindowPreferences) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(f"{self.path.suffix}.tmp")
-        temporary.write_text(
-            json.dumps(asdict(preferences), ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temporary.replace(self.path)
+        with _SAVE_LOCK:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_name(f".{self.path.name}.{uuid4().hex}.tmp")
+            try:
+                temporary.write_text(
+                    json.dumps(asdict(preferences), ensure_ascii=False, indent=2),
+                    encoding="utf-8",
+                )
+                _replace_with_retry(temporary, self.path)
+            finally:
+                with suppress(OSError):
+                    temporary.unlink(missing_ok=True)
 
 
 def _preferences_from_payload(payload: dict[str, Any]) -> WindowPreferences:
@@ -107,3 +122,14 @@ def _integer(value: Any, default: int) -> int:
 
 def _optional_integer(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _replace_with_retry(source: Path, destination: Path) -> None:
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            source.replace(destination)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(0.01 * (attempt + 1))

@@ -63,3 +63,16 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 - `%LOCALAPPDATA%` vazio ou relativo usa o diretório pessoal como fallback absoluto.
 - Suíte ampliada para 55 testes e cobertura total elevada para 74%.
 - Executável x86 reconstruído e aprovado em smoke test com duas bases e log de erros vazio.
+
+### Corrigido após a Fase 2
+
+- Menu lateral passa a ter rolagem e mantém a página selecionada visível no tamanho mínimo e
+  em DPI alto.
+- Cabeçalho invalida resultados anteriores ao reanalisar ou quando a nova análise falha.
+- Persistência utiliza os limites do desktop virtual do Windows e aceita monitores à direita,
+  à esquerda ou acima do principal.
+- Formatação de geometria suporta coordenadas negativas na janela e nos diálogos.
+- Preferências usam temporários exclusivos, serialização local e retentativas para fechamentos
+  concorrentes entre instâncias.
+- Suíte ampliada para 70 testes e cobertura combinada elevada para 85%.
+- Executável x86 reconstruído e aprovado em abertura, descoberta e fechamento normal.

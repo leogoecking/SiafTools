@@ -3,6 +3,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from siaf_support_toolbox.ui.screen_geometry import format_geometry
+
 
 class MessageDialog(tk.Toplevel):
     def __init__(
@@ -56,7 +58,7 @@ class MessageDialog(tk.Toplevel):
         height = self.winfo_reqheight()
         x = parent.winfo_rootx() + max(0, (parent.winfo_width() - width) // 2)
         y = parent.winfo_rooty() + max(0, (parent.winfo_height() - height) // 2)
-        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.geometry(format_geometry(width, height, x, y))
 
     def _confirm(self) -> None:
         self.result = True

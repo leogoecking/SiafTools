@@ -22,7 +22,9 @@ from siaf_support_toolbox.ui.preferences import (
     WindowPreferences,
     WindowPreferencesStore,
 )
+from siaf_support_toolbox.ui.screen_geometry import detect_screen_bounds, format_geometry
 from siaf_support_toolbox.ui.theme import ThemeManager
+from siaf_support_toolbox.ui.widgets import ScrollableSidebar
 
 LOGGER = logging.getLogger(__name__)
 
@@ -48,8 +50,12 @@ class MainWindow(tk.Tk):
         self._preferences_store = preferences_store or WindowPreferencesStore(
             self._paths.data / "window-state.json"
         )
+        self._screen_bounds = detect_screen_bounds(self)
         self._preferences = self._preferences_store.load().normalized(
-            self.winfo_screenwidth(), self.winfo_screenheight()
+            self._screen_bounds.width,
+            self._screen_bounds.height,
+            self._screen_bounds.x,
+            self._screen_bounds.y,
         )
         self._restore_window()
 
@@ -84,12 +90,16 @@ class MainWindow(tk.Tk):
         return self._theme.current
 
     def _restore_window(self) -> None:
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        self.minsize(min(MINIMUM_WIDTH, screen_width), min(MINIMUM_HEIGHT, screen_height))
+        bounds = self._screen_bounds
+        self.minsize(min(MINIMUM_WIDTH, bounds.width), min(MINIMUM_HEIGHT, bounds.height))
         preferences = self._preferences
         self.geometry(
-            f"{preferences.width}x{preferences.height}+{preferences.x or 0}+{preferences.y or 0}"
+            format_geometry(
+                preferences.width,
+                preferences.height,
+                preferences.x if preferences.x is not None else bounds.x,
+                preferences.y if preferences.y is not None else bounds.y,
+            )
         )
 
     def _maximize(self) -> None:
@@ -171,21 +181,22 @@ class MainWindow(tk.Tk):
             label.grid(row=row, column=column, sticky="w", padx=(0, 20), pady=1)
 
     def _build_sidebar(self, parent: ttk.Frame) -> None:
-        sidebar = ttk.Frame(parent, width=220, padding=(10, 14), style="Sidebar.TFrame")
-        sidebar.grid(row=0, column=0, sticky="nsw")
-        sidebar.grid_propagate(False)
-        sidebar.grid_columnconfigure(0, weight=1)
-        ttk.Label(sidebar, text="Navegação", style="SidebarTitle.TLabel").grid(
+        self.sidebar = ScrollableSidebar(parent, width=220)
+        self.sidebar.grid(row=0, column=0, sticky="nsw")
+        content = self.sidebar.content
+        content.grid_columnconfigure(0, weight=1)
+        ttk.Label(content, text="Navegação", style="SidebarTitle.TLabel").grid(
             row=0, column=0, sticky="w", padx=8, pady=(0, 12)
         )
         for row, item in enumerate(NAVIGATION_ITEMS, start=1):
             button = ttk.Button(
-                sidebar,
+                content,
                 text=item.label,
                 style="Sidebar.TButton",
                 command=lambda page_id=item.page_id: self.navigate(page_id),
             )
             button.grid(row=row, column=0, sticky="ew", pady=1)
+            self.sidebar.bind_mousewheel(button)
             self._navigation_buttons[item.page_id] = button
 
     def _build_pages(self) -> None:
@@ -225,7 +236,14 @@ class MainWindow(tk.Tk):
         self._pages[page_id].tkraise()
         self._current_page = page_id
         self._refresh_navigation_styles()
+        selected_button = self._navigation_buttons[page_id]
+        self.sidebar.scroll_to(selected_button)
+        self.after_idle(self._ensure_current_navigation_visible)
         self.status_label.config(text=f"Página: {navigation_item(page_id).label}")
+
+    def _ensure_current_navigation_visible(self) -> None:
+        if not self._closing:
+            self.sidebar.scroll_to(self._navigation_buttons[self._current_page])
 
     def _refresh_navigation_styles(self) -> None:
         for page_id, button in self._navigation_buttons.items():
@@ -240,6 +258,7 @@ class MainWindow(tk.Tk):
 
     def _apply_theme(self, theme: str) -> None:
         palette = self._theme.apply(theme)
+        self.sidebar.set_background(palette.sidebar)
         self.environment_page.apply_palette(palette)  # type: ignore[attr-defined]
         self._refresh_navigation_styles()
 
@@ -257,6 +276,7 @@ class MainWindow(tk.Tk):
     def start_discovery(self) -> None:
         if self._closing or (self._discovery_thread and self._discovery_thread.is_alive()):
             return
+        self._set_header_pending()
         self.environment_page.set_busy(True)  # type: ignore[attr-defined]
         self.progress.start(12)
         self.status_label.config(text="Analisando ambiente...")
@@ -315,6 +335,7 @@ class MainWindow(tk.Tk):
 
     def _render_error(self, error: Exception) -> None:
         self._finish_discovery()
+        self._set_header_unavailable()
         self.status_label.config(text="A análise encontrou um erro inesperado")
         self.indicator_label.config(text="Erro")
         self.environment_page.set_details(  # type: ignore[attr-defined]
@@ -326,7 +347,22 @@ class MainWindow(tk.Tk):
         self.environment_page.set_busy(False)  # type: ignore[attr-defined]
         self._discovery_started_at = None
 
+    def _set_header_pending(self) -> None:
+        self.mode_label.config(text="Modo: analisando")
+        self.firebird_label.config(text="Firebird: analisando")
+        self.base_label.config(text="Bases: analisando")
+        self.connection_label.config(text="Conexão: não validada")
+        self.architecture_label.config(text="Arquitetura: analisando")
+
+    def _set_header_unavailable(self) -> None:
+        self.mode_label.config(text="Modo: não confirmado")
+        self.firebird_label.config(text="Firebird: não confirmado")
+        self.base_label.config(text="Bases: não confirmadas")
+        self.connection_label.config(text="Conexão: indisponível")
+        self.architecture_label.config(text="Arquitetura: não confirmada")
+
     def _capture_preferences(self) -> WindowPreferences:
+        bounds = detect_screen_bounds(self)
         return WindowPreferences(
             width=self.winfo_width(),
             height=self.winfo_height(),
@@ -335,7 +371,7 @@ class MainWindow(tk.Tk):
             maximized=str(self.state()) == "zoomed",
             theme=self._theme.current,
             selected_page=self._current_page,
-        ).normalized(self.winfo_screenwidth(), self.winfo_screenheight())
+        ).normalized(bounds.width, bounds.height, bounds.x, bounds.y)
 
     def close(self) -> None:
         if self._closing:

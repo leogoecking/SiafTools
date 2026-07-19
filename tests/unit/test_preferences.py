@@ -1,4 +1,5 @@
 import json
+import threading
 
 from siaf_support_toolbox.ui.navigation import DEFAULT_PAGE_ID
 from siaf_support_toolbox.ui.preferences import WindowPreferences, WindowPreferencesStore
@@ -68,3 +69,45 @@ def test_window_preferences_ignore_invalid_value_types(tmp_path):
     )
 
     assert WindowPreferencesStore(path).load() == WindowPreferences()
+
+
+def test_window_preferences_preserve_secondary_and_left_monitor_coordinates():
+    secondary = WindowPreferences(width=1120, height=720, x=1920, y=100).normalized(
+        screen_width=3840,
+        screen_height=1080,
+        screen_x=0,
+        screen_y=0,
+    )
+    left = WindowPreferences(width=1120, height=720, x=-1600, y=80).normalized(
+        screen_width=3840,
+        screen_height=1080,
+        screen_x=-1920,
+        screen_y=0,
+    )
+
+    assert (secondary.x, secondary.y) == (1920, 100)
+    assert (left.x, left.y) == (-1600, 80)
+
+
+def test_concurrent_window_preference_saves_use_independent_temporary_files(tmp_path):
+    store = WindowPreferencesStore(tmp_path / "window-state.json")
+    workers = 20
+    barrier = threading.Barrier(workers)
+    errors: list[Exception] = []
+
+    def save(index: int) -> None:
+        try:
+            barrier.wait(timeout=5)
+            store.save(WindowPreferences(x=index, selected_page="dashboard"))
+        except Exception as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=save, args=(index,)) for index in range(workers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == []
+    assert store.load().selected_page == "dashboard"
+    assert not list(tmp_path.glob("*.tmp"))

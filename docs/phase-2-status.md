@@ -21,10 +21,10 @@ executável PyInstaller de homologação.
 ## Validação
 
 - Runtime: Python 3.11.9 x86.
-- Testes: 65 aprovados.
+- Testes: 70 aprovados após a estabilização pós-fase.
 - Ruff e formatação: aprovados.
-- Cobertura combinada da suíte e smoke da interface: 83%.
-- Cobertura da janela principal: 78%.
+- Cobertura combinada da suíte e smoke da interface: 85%.
+- Cobertura da janela principal: 84%.
 - Cobertura de navegação e tema: 100%.
 - Smoke test visitou as onze páginas, alternou o tema, abriu e fechou o diálogo e persistiu o
   estado da janela.
@@ -40,3 +40,21 @@ executável PyInstaller de homologação.
 
 Nenhuma consulta funcional, SQLite interno ou operação de escrita foi implementada. Esses
 recursos permanecem nas fases seguintes.
+
+## Estabilização pós-fase
+
+A revisão posterior encontrou e corrigiu quatro casos não cobertos inicialmente:
+
+- último item do menu cortado no tamanho mínimo e em DPI alto;
+- cabeçalho mantendo dados antigos depois de uma reanálise com erro;
+- posição de janela em monitor secundário sendo movida para o monitor principal;
+- colisão no arquivo temporário ao fechar mais de uma instância.
+
+A barra lateral agora possui rolagem e traz a seleção para a área visível. O cabeçalho marca os
+dados como não confirmados após falha. A geometria usa o desktop virtual do Windows, inclusive
+com coordenadas negativas. A persistência usa temporários exclusivos, bloqueio entre threads e
+retentativas curtas entre processos.
+
+O smoke test comprovou acesso a `Configurações` em escala de 200% e remoção dos dados antigos.
+Testes unitários preservaram coordenadas em monitores à direita e à esquerda. Uma prova com 12
+processos simultâneos salvou JSON válido sem erro ou temporário residual.

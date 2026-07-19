@@ -26,3 +26,5 @@ def test_hidden_ui_navigates_all_pages_and_closes():
     assert result["dialog_result"] is True
     assert result["preferences_saved"] is True
     assert result["final_theme"] in {"light", "dark"}
+    assert result["settings_visible_at_high_dpi"] is True
+    assert result["stale_header_cleared"] is True
