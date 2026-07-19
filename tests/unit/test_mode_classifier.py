@@ -1,7 +1,9 @@
 from siaf_support_toolbox.discovery.mode_classifier import classify_machine
 from siaf_support_toolbox.discovery.models import (
+    ConnectionReferenceFinding,
     DatabaseCandidate,
     DiscoveryReport,
+    Evidence,
     MachineMode,
     NetworkFinding,
     ProcessFinding,
@@ -53,3 +55,18 @@ def test_unrelated_remote_connection_is_not_firebird_terminal():
     mode, confidence, _ = classify_machine(report)
     assert mode == MachineMode.ASSISTED
     assert confidence <= 40
+
+
+def test_terminal_can_be_classified_from_siaf_installation_and_remote_configuration():
+    report = DiscoveryReport(
+        evidence=[Evidence("busca_limitada_siaf", "C:/SIAF/SIAFW.EXE", 25)],
+        connection_references=[
+            ConnectionReferenceFinding("servidor", 3050, "LOJA01", "C:/SIAF/siaf.ini")
+        ],
+    )
+
+    mode, confidence, evidence = classify_machine(report)
+
+    assert mode == MachineMode.TERMINAL
+    assert confidence >= 60
+    assert any(item.source == "configuracao_remota_firebird" for item in evidence)

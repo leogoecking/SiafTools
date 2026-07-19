@@ -21,10 +21,22 @@ def classify_machine(report: DiscoveryReport) -> tuple[MachineMode, int, list[Ev
     if report.databases:
         server_score += 20
         evidence.append(Evidence("bases_locais", f"{len(report.databases)} candidata(s)", 20))
-    if report.siaf_processes:
+    has_siaf = bool(
+        report.siaf_processes
+        or report.siaf_shortcuts
+        or any(item.source in {"processo_siaf", "busca_limitada_siaf"} for item in report.evidence)
+    )
+    if has_siaf:
         terminal_score += 25
         evidence.append(
-            Evidence("processo_siaf", f"{len(report.siaf_processes)} encontrado(s)", 25)
+            Evidence(
+                "siaf_localizado",
+                (
+                    f"{len(report.siaf_processes)} processo(s), "
+                    f"{len(report.siaf_shortcuts)} atalho(s)"
+                ),
+                25,
+            )
         )
 
     firebird_ports = set(report.detected_ports or [3050])
@@ -40,6 +52,21 @@ def classify_machine(report: DiscoveryReport) -> tuple[MachineMode, int, list[Ev
                 "conexao_remota_firebird",
                 f"{len(remote_firebird_connections)} estabelecida(s)",
                 45,
+            )
+        )
+
+    remote_configuration = [
+        item
+        for item in report.connection_references
+        if item.host and not _is_local_address(item.host)
+    ]
+    if has_siaf and remote_configuration:
+        terminal_score += 35
+        evidence.append(
+            Evidence(
+                "configuracao_remota_firebird",
+                f"{len(remote_configuration)} referência(s)",
+                35,
             )
         )
 

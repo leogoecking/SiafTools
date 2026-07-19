@@ -24,7 +24,10 @@ def test_hidden_ui_navigates_all_pages_and_closes():
     assert len(set(result["visited"])) == 11
     assert result["closed"] is True
     assert result["dialog_result"] is True
+    assert result["credentials_dialog_ok"] is True
+    assert result["manual_dialog_ok"] is True
     assert result["preferences_saved"] is True
     assert result["final_theme"] in {"light", "dark"}
     assert result["settings_visible_at_high_dpi"] is True
     assert result["stale_header_cleared"] is True
+    assert result["stale_actions_disabled"] is True

@@ -66,7 +66,7 @@ class LocalRepository:
                 siaf_path,
                 _optional_text(service.name if service else None),
                 server_path,
-                None,
+                _optional_text(report.firebird_version),
                 str(client.architecture) if client else None,
                 _optional_text(client.path if client else None),
                 _optional_text(client.name if client else None),
@@ -279,6 +279,89 @@ class LocalRepository:
                 ).fetchall()
             ]
             return result
+
+    def active_environment(self, machine_name: str) -> dict[str, Any] | None:
+        with self.database.connect() as connection:
+            environment = connection.execute(
+                """
+                SELECT * FROM detected_environments
+                WHERE machine_name = ? AND active = 1
+                ORDER BY last_scan DESC LIMIT 1
+                """,
+                (_text(machine_name),),
+            ).fetchone()
+            if environment is None:
+                return None
+            result = dict(environment)
+            result["databases"] = [
+                dict(row)
+                for row in connection.execute(
+                    """
+                    SELECT * FROM discovered_databases
+                    WHERE environment_id = ? ORDER BY confidence_score DESC, database_path
+                    """,
+                    (environment["id"],),
+                ).fetchall()
+            ]
+            return result
+
+    def ensure_connection_candidate(
+        self,
+        environment_id: int,
+        *,
+        database_path: str,
+        database_host: str | None,
+        database_port: int | None,
+        database_type: str = "DESCONHECIDA",
+        confidence_score: int = 50,
+    ) -> int:
+        now = _utc_now()
+        candidate = DatabaseCandidate(
+            database_path,
+            database_type,
+            None,
+            max(0, min(confidence_score, 100)),
+        )
+        with self.database.connect() as connection, connection:
+            self._upsert_database(
+                connection,
+                environment_id,
+                candidate,
+                database_host,
+                database_port,
+                now,
+            )
+            row = connection.execute(
+                """
+                SELECT id FROM discovered_databases
+                WHERE environment_id = ? AND database_path = ? COLLATE NOCASE
+                  AND COALESCE(database_host, '') = COALESCE(?, '')
+                  AND COALESCE(database_port, -1) = COALESCE(?, -1)
+                ORDER BY id DESC LIMIT 1
+                """,
+                (
+                    environment_id,
+                    _text(database_path),
+                    _optional_text(database_host),
+                    database_port,
+                ),
+            ).fetchone()
+            if row is None:  # pragma: no cover - protegido pelo upsert na mesma transação
+                raise RuntimeError("O candidato de conexão não pôde ser persistido")
+            return int(row["id"])
+
+    def update_environment_firebird_version(
+        self,
+        environment_id: int,
+        firebird_version: str | None,
+    ) -> None:
+        if not firebird_version:
+            return
+        with self.database.connect() as connection, connection:
+            connection.execute(
+                "UPDATE detected_environments SET firebird_version = ? WHERE id = ?",
+                (_text(firebird_version), environment_id),
+            )
 
     def save_manual_profile(self, profile: ManualConnectionProfile) -> int:
         now = _utc_now()
@@ -497,6 +580,16 @@ def _endpoint(report: DiscoveryReport) -> tuple[str | None, int | None]:
     )
     if remote:
         return remote.remote_address, remote.remote_port
+    reference = next(
+        (
+            item
+            for item in report.connection_references
+            if item.host and not _is_local_host(item.host)
+        ),
+        None,
+    )
+    if reference:
+        return reference.host, reference.port
     port = report.detected_ports[0] if report.detected_ports else None
     return None, port
 

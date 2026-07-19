@@ -3,11 +3,17 @@
 Aplicação desktop Windows para descobrir com segurança um ambiente SIAF/Firebird e, após
 validação, oferecer consultas de suporte em modo somente leitura.
 
-As **Fases 0, 1, 2 e 3 estão concluídas**. A entrega atual cobre a fundação do repositório, a
-interface desktop, o SQLite interno e uma prova de descoberta: arquitetura do processo,
-processos/serviços, Registro do Windows, bibliotecas cliente Firebird, conexões TCP do SIAF e
-candidatos limitados a `SIAFW.FDB` e `SIAFLOJA.FDB`. Consultas funcionais e operações de escrita
-ainda não fazem parte da entrega.
+As **Fases 0, 1, 2 e 3 estão concluídas** e a **Fase 4 está em homologação**. A entrega atual
+cobre a fundação do repositório, a interface desktop, o SQLite interno e a descoberta
+automática: arquitetura do processo, processos/serviços, Registro do Windows, configurações
+próximas ao SIAF, bibliotecas cliente Firebird, conexões TCP e candidatos limitados a
+`SIAFW.FDB` e `SIAFLOJA.FDB`.
+
+Na página **Ambiente detectado**, o botão **Validar conexão** solicita usuário e senha apenas
+para a tentativa atual, prepara os endpoints automaticamente e classifica a base pelo catálogo
+antes de aceitá-la. **Opções avançadas** é um fallback para ambientes que não puderam ser
+resolvidos automaticamente. O diagnóstico técnico pode ser exportado pela mesma página com
+caminhos mascarados e sem credenciais.
 
 Dados, logs e exportações são armazenados no perfil do usuário em
 `%LOCALAPPDATA%\SIAF Support Toolbox`. A variável `SIAF_TOOLBOX_HOME` permite usar outro
@@ -19,8 +25,9 @@ bases descobertas, perfis manuais de contingência, histórico, templates, cache
 base de conhecimento. Ele não possui campo de senha; credenciais continuam restritas à sessão.
 
 A interface possui menu lateral com as áreas previstas no roadmap, temas claro e escuro e
-persistência de tamanho, posição, estado e última página. Os módulos de fases futuras aparecem
-somente como páginas preparadas, sem executar consultas ou operações.
+persistência de tamanho, posição, estado e última página. A validação de conexão roda fora da
+thread da interface e cada worker abre sua própria conexão Firebird somente leitura. Consultas
+funcionais e operações de escrita ainda não fazem parte da entrega.
 
 ## Requisito de arquitetura
 
@@ -60,8 +67,9 @@ python scripts\diagnose.py --json
 python scripts\ui_smoke.py
 ```
 
-O diagnóstico não solicita nem registra credenciais. Caminhos podem conter informações do
-ambiente local; revise o JSON antes de anexá-lo a tickets.
+O diagnóstico de linha de comando não solicita nem registra credenciais. A exportação pela
+interface também mascara caminhos conhecidos; ainda assim, revise o JSON antes de anexá-lo a
+tickets.
 
 Para validar as bases descobertas sem colocar senha na linha de comando ou em arquivos:
 

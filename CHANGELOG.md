@@ -47,10 +47,30 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 - Inicializações concorrentes do SQLite são serializadas para permitir múltiplas instâncias.
 - Executável x86 reconstruído com suporte ao SQLite e aprovado em criação do banco, descoberta
   e fechamento normal.
+- Fase 4 iniciada com plano automático de conexão para servidor local, terminal remoto e
+  descoberta assistida, sempre baseado nas evidências encontradas no ambiente.
+- Leitura limitada de configurações próximas à instalação do SIAF para identificar aliases,
+  servidor, porta e caminhos, sem varredura recursiva completa do disco.
+- Validação Firebird somente leitura executada em worker próprio, com pré-teste de porta,
+  classificação obrigatória pelo catálogo e coleta da versão do servidor e ODS.
+- Credenciais solicitadas em diálogo próprio e apagadas da sessão após cada tentativa, sem
+  persistência em SQLite, logs, diagnóstico ou perfil manual.
+- Fallback avançado para informar conexão manual e salvar somente o perfil técnico quando a
+  validação for bem-sucedida.
+- Status de conexão e assinatura do esquema persistidos no histórico local, preservando a
+  separação entre endpoints.
+- Exportação atômica e sem colisões do diagnóstico técnico, com caminhos mascarados e nenhuma
+  credencial.
+- Build x86 da Fase 4 aprovado em inicialização, descoberta e fechamento normal, com 94 testes
+  e 85% de cobertura combinada.
+- Uma reanálise com falha invalida também o plano e os botões de conexão anteriores, impedindo
+  tentativa acidental contra um endpoint desatualizado.
 
 ### Limitações conhecidas
 
 - Cenários de terminal remoto e matriz ampliada Windows 10/11 ainda não homologados.
+- A Fase 4 permanece em homologação até uma conexão real ser validada pela nova tela com
+  credenciais autorizadas e o fluxo de terminal remoto ser exercitado.
 
 ### Corrigido após a Fase 0
 

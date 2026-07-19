@@ -104,11 +104,20 @@ class FirebirdConfigurationFinding:
     aliases: tuple[AliasFinding, ...] = ()
 
 
+@dataclass(frozen=True, slots=True)
+class ConnectionReferenceFinding:
+    host: str | None
+    port: int
+    database: str
+    source_file: str
+
+
 @dataclass(slots=True)
 class DiscoveryReport:
     process_architecture: Architecture = Architecture.UNKNOWN
     process_bits: int = 0
     is_admin: bool = False
+    firebird_version: str | None = None
     siaf_processes: list[ProcessFinding] = field(default_factory=list)
     siaf_shortcuts: list[ShortcutFinding] = field(default_factory=list)
     firebird_processes: list[ProcessFinding] = field(default_factory=list)
@@ -119,6 +128,7 @@ class DiscoveryReport:
     network_connections: list[NetworkFinding] = field(default_factory=list)
     aliases: list[AliasFinding] = field(default_factory=list)
     firebird_configurations: list[FirebirdConfigurationFinding] = field(default_factory=list)
+    connection_references: list[ConnectionReferenceFinding] = field(default_factory=list)
     detected_ports: list[int] = field(default_factory=lambda: [3050])
     mode: MachineMode = MachineMode.ASSISTED
     confidence: int = 0

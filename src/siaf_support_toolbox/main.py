@@ -7,6 +7,8 @@ from siaf_support_toolbox.core.logging_config import configure_logging
 from siaf_support_toolbox.core.paths import AppPaths
 from siaf_support_toolbox.database.sqlite_connection import SQLiteDatabase
 from siaf_support_toolbox.repositories.local_repository import LocalRepository
+from siaf_support_toolbox.services.connection_service import FirebirdConnectionService
+from siaf_support_toolbox.services.diagnostic_export_service import DiagnosticExportService
 from siaf_support_toolbox.services.environment_discovery_service import (
     PersistentDiscoveryService,
 )
@@ -27,8 +29,16 @@ def main() -> None:
         LOGGER.exception("O banco interno não pôde ser inicializado")
         show_database_startup_error(database_path)
         return
-    discovery_service = PersistentDiscoveryService(LocalRepository(database))
-    MainWindow(paths=paths, orchestrator=discovery_service).mainloop()
+    repository = LocalRepository(database)
+    discovery_service = PersistentDiscoveryService(repository)
+    connection_service = FirebirdConnectionService(repository)
+    diagnostic_exporter = DiagnosticExportService(paths.exports)
+    MainWindow(
+        paths=paths,
+        orchestrator=discovery_service,
+        connection_service=connection_service,
+        diagnostic_exporter=diagnostic_exporter,
+    ).mainloop()
 
 
 if __name__ == "__main__":

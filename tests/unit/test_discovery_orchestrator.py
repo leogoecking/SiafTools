@@ -10,6 +10,7 @@ from siaf_support_toolbox.discovery.models import (
     FirebirdConfigurationFinding,
     MachineMode,
     ProcessFinding,
+    RegistryFinding,
     ServiceFinding,
 )
 
@@ -28,6 +29,9 @@ def patch_base_detectors(monkeypatch) -> None:
     )
     monkeypatch.setattr(
         orchestrator_module, "detect_firebird_configurations", lambda _roots: ([], [])
+    )
+    monkeypatch.setattr(
+        orchestrator_module, "detect_siaf_connection_references", lambda _roots: ([], [])
     )
     monkeypatch.setattr(orchestrator_module, "detect_client_libraries", lambda _roots: ([], []))
     monkeypatch.setattr(
@@ -55,6 +59,21 @@ def test_orchestrator_combines_grouped_environment_evidence(monkeypatch, tmp_pat
         orchestrator_module,
         "detect_firebird_services",
         lambda: ([ServiceFinding("fb", "Firebird", "running")], []),
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "detect_registry",
+        lambda: (
+            [
+                RegistryFinding(
+                    "SOFTWARE/Firebird/Uninstall",
+                    "DisplayVersion",
+                    "2.5.7.27050",
+                    "32-bit",
+                )
+            ],
+            [],
+        ),
     )
     monkeypatch.setattr(
         orchestrator_module,
@@ -93,6 +112,7 @@ def test_orchestrator_combines_grouped_environment_evidence(monkeypatch, tmp_pat
     assert report.aliases == [alias]
     assert report.mode == MachineMode.LOCAL_SERVER
     assert report.confidence >= 75
+    assert report.firebird_version == "2.5.7.27050"
 
 
 def test_orchestrator_turns_unexpected_detector_error_into_issue(monkeypatch):

@@ -38,6 +38,8 @@ class FakeConnection:
         self.rolled_back = False
         self.closed = False
         self.tpb = None
+        self.engine_version = "2.5.7"
+        self.ods = "11.2"
 
     def begin(self, *, tpb) -> None:
         self.tpb = tpb
@@ -87,6 +89,8 @@ def test_probe_accepts_strong_schema_and_rolls_back(monkeypatch):
     assert connection.rolled_back
     assert connection.closed
     assert connection.tpb == b"readonly"
+    assert result.server_version == "2.5.7"
+    assert result.ods_version == "11.2"
 
 
 def test_probe_rejects_low_confidence_schema(monkeypatch):
@@ -148,3 +152,22 @@ def test_translates_connection_errors_without_echoing_details(message, translate
     output = firebird_probe._translate_error(RuntimeError(message))
     assert translated in output
     assert message not in output
+
+
+def test_probe_stops_before_loading_driver_when_port_is_unavailable(monkeypatch):
+    monkeypatch.setattr(firebird_probe, "pe_architecture", lambda _path: Architecture.X86)
+    monkeypatch.setattr(firebird_probe, "process_architecture", lambda: Architecture.X86)
+    monkeypatch.setattr(firebird_probe, "_port_reachable", lambda *_args: False)
+
+    result = firebird_probe.probe_read_only(
+        dsn="server:D:/SIAFLOJA.FDB",
+        username="authorized",
+        password="session-only",
+        client_library="fbclient.dll",
+        host="server",
+        port=3050,
+    )
+
+    assert not result.success
+    assert result.error_code == "port_unavailable"
+    assert "serviço Firebird" in result.message

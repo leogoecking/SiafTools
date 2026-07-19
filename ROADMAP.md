@@ -1185,6 +1185,14 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 ### Fase 4 — Descoberta automática e conexão Firebird
 
+> **Em homologação desde 2026-07-18.** A descoberta automática agora prepara conexões locais
+> e remotas a partir de evidências do SIAF, valida cada base em modo somente leitura fora da
+> thread da interface e persiste somente metadados técnicos. O fallback avançado, a tradução
+> de falhas e a exportação de diagnóstico sem credenciais também estão disponíveis. A suíte
+> possui 94 testes, 85% de cobertura combinada e build PyInstaller x86 aprovado em smoke.
+> Permanecem pendentes a autenticação pela nova tela em uma base real e a homologação em um
+> terminal conectado a servidor remoto. Consulte `docs/phase-4-status.md`.
+
 **Entregas:**
 
 - Orquestrador de descoberta.

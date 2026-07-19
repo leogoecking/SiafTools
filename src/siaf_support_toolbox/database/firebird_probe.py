@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +20,8 @@ class FirebirdProbeResult:
     classification: SchemaClassification | None
     error_code: str | None = None
     message: str | None = None
+    server_version: str | None = None
+    ods_version: str | None = None
 
 
 def probe_read_only(
@@ -28,6 +31,9 @@ def probe_read_only(
     password: str,
     client_library: str | Path,
     charset: str = "WIN1252",
+    host: str | None = None,
+    port: int | None = None,
+    connect_timeout: float = 3.0,
 ) -> FirebirdProbeResult:
     """Abre uma conexão temporária read-only; a credencial nunca é persistida ou registrada."""
     library_path = Path(client_library)
@@ -44,6 +50,15 @@ def probe_read_only(
         import fdb
     except ImportError:
         return FirebirdProbeResult(False, None, None, "dependency_missing", "fdb não instalado")
+
+    if host and port and not _port_reachable(host, port, connect_timeout):
+        return FirebirdProbeResult(
+            False,
+            None,
+            None,
+            "port_unavailable",
+            "Não foi possível alcançar automaticamente o serviço Firebird",
+        )
 
     connection = None
     cursor = None
@@ -62,6 +77,8 @@ def probe_read_only(
             )
         connection.begin(tpb=read_only_tpb)
         cursor = connection.cursor()
+        server_version = _string_attribute(connection, "engine_version")
+        ods_version = _string_attribute(connection, "ods")
         cursor.execute("SELECT CURRENT_TIMESTAMP FROM RDB$DATABASE")
         current_timestamp = str(cursor.fetchone()[0])
         cursor.execute(
@@ -92,8 +109,16 @@ def probe_read_only(
                 classification,
                 code,
                 message,
+                server_version,
+                ods_version,
             )
-        return FirebirdProbeResult(True, current_timestamp, classification)
+        return FirebirdProbeResult(
+            True,
+            current_timestamp,
+            classification,
+            server_version=server_version,
+            ods_version=ods_version,
+        )
     except Exception as exc:
         return FirebirdProbeResult(False, None, None, "connection_failed", _translate_error(exc))
     finally:
@@ -116,4 +141,22 @@ def _translate_error(error: Exception) -> str:
         return "A credencial autorizada não foi aceita pelo Firebird"
     if "createfile" in lowered or "-902" in lowered:
         return "O caminho detectado não é válido para o serviço Firebird"
+    if any(
+        marker in lowered
+        for marker in ("connection refused", "timed out", "unreachable", "connection reset")
+    ):
+        return "Não foi possível alcançar automaticamente o serviço Firebird"
     return "Não foi possível validar a conexão Firebird"
+
+
+def _port_reachable(host: str, port: int, timeout: float) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=max(0.1, timeout)):
+            return True
+    except OSError:
+        return False
+
+
+def _string_attribute(value: object, name: str) -> str | None:
+    attribute = getattr(value, name, None)
+    return str(attribute) if attribute not in (None, "") else None

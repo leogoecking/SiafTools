@@ -18,6 +18,10 @@ from siaf_support_toolbox.discovery.models import (  # noqa: E402
     ProcessFinding,
 )
 from siaf_support_toolbox.ui.dialogs import show_message  # noqa: E402
+from siaf_support_toolbox.ui.dialogs.connection_dialog import (  # noqa: E402
+    CredentialsDialog,
+    ManualConnectionDialog,
+)
 from siaf_support_toolbox.ui.dialogs.message_dialog import MessageDialog  # noqa: E402
 from siaf_support_toolbox.ui.main_window import MainWindow  # noqa: E402
 from siaf_support_toolbox.ui.navigation import NAVIGATION_ITEMS  # noqa: E402
@@ -47,6 +51,27 @@ def main() -> int:
     window.after(50, close_dialog)
     dialog_result = show_message(window, "Teste de diálogo", "Diálogo reutilizável disponível.")
 
+    credentials_dialog = CredentialsDialog(window)
+    credentials_dialog.withdraw()
+    credentials_dialog.username.insert(0, "SUPORTE")
+    credentials_dialog.password.insert(0, "session-only")
+    credentials_dialog._submit()
+    credentials_result = credentials_dialog.result
+    credentials_dialog_ok = credentials_result is not None
+    if credentials_result:
+        credentials_result.clear()
+
+    manual_dialog = ManualConnectionDialog(window)
+    manual_dialog.withdraw()
+    manual_dialog.entries["database_path"].insert(0, "D:/Dados/SIAFLOJA.FDB")
+    manual_dialog.entries["client_library"].insert(0, "C:/Firebird/fbclient.dll")
+    manual_dialog.entries["username"].insert(0, "SUPORTE")
+    manual_dialog.entries["password"].insert(0, "session-only")
+    manual_dialog._submit_manual()
+    manual_dialog_ok = manual_dialog.manual_result is not None and manual_dialog.result is not None
+    if manual_dialog.result:
+        manual_dialog.result.clear()
+
     window.attributes("-alpha", 0.0)
     window.deiconify()
     window.tk.call("tk", "scaling", 2.0)
@@ -70,11 +95,19 @@ def main() -> int:
         databases=[DatabaseCandidate("C:/SIAFW/SIAFW.FDB", "SIAFW", 1, 90)],
     )
     window._render_report(report)
+    window.environment_page.set_actions(validate=True, export=True, manual=True)
     window._render_error(RuntimeError("reanálise indisponível"))
     stale_header_cleared = (
         window.mode_label.cget("text") == "Modo: não confirmado"
         and window.firebird_label.cget("text") == "Firebird: não confirmado"
         and window.base_label.cget("text") == "Bases: não confirmadas"
+    )
+    stale_actions_disabled = (
+        window.environment_page.validate_button.instate(["disabled"])
+        and window.environment_page.export_button.instate(["disabled"])
+        and window.environment_page.manual_button.instate(["disabled"])
+        and window._last_report is None
+        and not window._last_plan.targets
     )
     window.close()
 
@@ -85,9 +118,12 @@ def main() -> int:
                 "final_theme": final_theme,
                 "closed": True,
                 "dialog_result": dialog_result,
+                "credentials_dialog_ok": credentials_dialog_ok,
+                "manual_dialog_ok": manual_dialog_ok,
                 "preferences_saved": store.path.is_file(),
                 "settings_visible_at_high_dpi": settings_visible,
                 "stale_header_cleared": stale_header_cleared,
+                "stale_actions_disabled": stale_actions_disabled,
             },
             ensure_ascii=False,
         )

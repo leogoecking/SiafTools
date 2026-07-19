@@ -24,6 +24,9 @@ from siaf_support_toolbox.discovery.process_detector import (
 )
 from siaf_support_toolbox.discovery.registry_detector import detect_registry
 from siaf_support_toolbox.discovery.shortcut_detector import detect_siaf_shortcuts
+from siaf_support_toolbox.discovery.siaf_connection_detector import (
+    detect_siaf_connection_references,
+)
 from siaf_support_toolbox.discovery.siaf_install_detector import detect_siaf_installations
 from siaf_support_toolbox.discovery.windows_service_detector import detect_firebird_services
 
@@ -66,6 +69,7 @@ class DiscoveryOrchestrator:
         report.issues.extend(issues)
         report.registry, issues = self._safe("registro_windows", detect_registry, ([],))
         report.issues.extend(issues)
+        report.firebird_version = self._firebird_version(report)
 
         roots = self._seed_roots(report)
         installations, evidence, issues = self._safe(
@@ -84,6 +88,21 @@ class DiscoveryOrchestrator:
             ([],),
         )
         report.issues.extend(issues)
+        connection_roots = [item.parent if item.is_file() else item for item in installations]
+        report.connection_references, issues = self._safe(
+            "config_conexao_siaf",
+            lambda: detect_siaf_connection_references(connection_roots),
+            ([],),
+        )
+        report.issues.extend(issues)
+        report.evidence.extend(
+            Evidence(
+                "config_conexao_siaf",
+                f"{item.host or 'local'}:{item.port}:{item.database}",
+                30,
+            )
+            for item in report.connection_references
+        )
         report.aliases = [
             alias
             for configuration in report.firebird_configurations
@@ -91,6 +110,7 @@ class DiscoveryOrchestrator:
         ]
         report.detected_ports = sorted(
             {configuration.port for configuration in report.firebird_configurations}
+            | {reference.port for reference in report.connection_references}
         ) or [DEFAULT_FIREBIRD_PORT]
         alias_paths = [Path(item.database) for item in report.aliases]
 
@@ -149,6 +169,21 @@ class DiscoveryOrchestrator:
                 roots.extend(Path(base) / name for name in ("Firebird", "InterBase"))
         roots.extend((Path("C:/Firebird"), Path("C:/Program Files/Firebird")))
         return self._unique_existing(roots)
+
+    @staticmethod
+    def _firebird_version(report: DiscoveryReport) -> str | None:
+        return next(
+            (
+                finding.value
+                for finding in report.registry
+                if finding.name.casefold() == "displayversion"
+                and any(
+                    marker in finding.key.casefold()
+                    for marker in ("firebird", "fbdbserver", "interbase")
+                )
+            ),
+            None,
+        )
 
     @staticmethod
     def _path_from_command(value: str) -> Path | None:

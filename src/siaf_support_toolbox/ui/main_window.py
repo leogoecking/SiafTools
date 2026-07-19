@@ -14,7 +14,14 @@ from siaf_support_toolbox.core.paths import AppPaths
 from siaf_support_toolbox.core.version import __version__
 from siaf_support_toolbox.discovery.discovery_orchestrator import DiscoveryOrchestrator
 from siaf_support_toolbox.discovery.models import DiscoveryReport, MachineMode
-from siaf_support_toolbox.ui.dialogs import show_message
+from siaf_support_toolbox.services.connection_service import (
+    ConnectionPlan,
+    ConnectionSummary,
+    ManualConnectionInput,
+    SessionCredentials,
+)
+from siaf_support_toolbox.services.diagnostic_export_service import DiagnosticExportService
+from siaf_support_toolbox.ui.dialogs import ask_credentials, ask_manual_connection, show_message
 from siaf_support_toolbox.ui.navigation import NAVIGATION_ITEMS, VALID_PAGE_IDS, navigation_item
 from siaf_support_toolbox.ui.pages import EnvironmentPage, PlaceholderPage
 from siaf_support_toolbox.ui.preferences import (
@@ -40,11 +47,28 @@ class DiscoveryProvider(Protocol):
     def discover(self) -> DiscoveryReport: ...
 
 
+class ConnectionProvider(Protocol):
+    def build_plan(
+        self,
+        report: DiscoveryReport,
+        manual: ManualConnectionInput | None = None,
+    ) -> ConnectionPlan: ...
+
+    def validate(
+        self,
+        plan: ConnectionPlan,
+        credentials: SessionCredentials,
+        manual: ManualConnectionInput | None = None,
+    ) -> ConnectionSummary: ...
+
+
 class MainWindow(tk.Tk):
     def __init__(
         self,
         orchestrator: DiscoveryProvider | None = None,
         *,
+        connection_service: ConnectionProvider | None = None,
+        diagnostic_exporter: DiagnosticExportService | None = None,
         paths: AppPaths | None = None,
         preferences_store: WindowPreferencesStore | None = None,
         auto_discover: bool = True,
@@ -65,9 +89,15 @@ class MainWindow(tk.Tk):
         self._restore_window()
 
         self._orchestrator = orchestrator or DiscoveryOrchestrator()
+        self._connection_service = connection_service
+        self._diagnostic_exporter = diagnostic_exporter
         self._events: queue.Queue[tuple[str, object]] = queue.Queue()
         self._discovery_thread: threading.Thread | None = None
+        self._connection_thread: threading.Thread | None = None
         self._discovery_started_at: float | None = None
+        self._last_report: DiscoveryReport | None = None
+        self._last_plan = ConnectionPlan(())
+        self._last_summary: ConnectionSummary | None = None
         self._closing = False
         self._poll_after_id: str | None = None
         self._current_page = self._preferences.selected_page
@@ -207,7 +237,13 @@ class MainWindow(tk.Tk):
     def _build_pages(self) -> None:
         for item in NAVIGATION_ITEMS:
             if item.page_id == "environment":
-                page: ttk.Frame = EnvironmentPage(self._page_container, self.start_discovery)
+                page: ttk.Frame = EnvironmentPage(
+                    self._page_container,
+                    self.start_discovery,
+                    self.start_connection_validation,
+                    self.export_diagnostic,
+                    self.start_manual_connection,
+                )
                 self.environment_page = page
             else:
                 page = PlaceholderPage(self._page_container, item.title, item.description)
@@ -279,10 +315,13 @@ class MainWindow(tk.Tk):
         )
 
     def start_discovery(self) -> None:
-        if self._closing or (self._discovery_thread and self._discovery_thread.is_alive()):
+        if self._closing or self._worker_running():
             return
         self._set_header_pending()
         self.environment_page.set_busy(True)  # type: ignore[attr-defined]
+        self.environment_page.set_actions(  # type: ignore[attr-defined]
+            validate=False, export=False, manual=False
+        )
         self.progress.start(12)
         self.status_label.config(text="Analisando ambiente...")
         self.indicator_label.config(text="Análise em andamento")
@@ -296,6 +335,12 @@ class MainWindow(tk.Tk):
             daemon=True,
         )
         self._discovery_thread.start()
+
+    def _worker_running(self) -> bool:
+        return bool(
+            (self._discovery_thread and self._discovery_thread.is_alive())
+            or (self._connection_thread and self._connection_thread.is_alive())
+        )
 
     def _run_discovery(self) -> None:
         try:
@@ -312,6 +357,10 @@ class MainWindow(tk.Tk):
                 event, payload = self._events.get_nowait()
                 if event == "report":
                     self._render_report(payload)  # type: ignore[arg-type]
+                elif event == "connection":
+                    self._render_connection(payload)  # type: ignore[arg-type]
+                elif event == "connection_error":
+                    self._render_connection_error(payload)  # type: ignore[arg-type]
                 else:
                     self._render_error(payload)  # type: ignore[arg-type]
         except queue.Empty:
@@ -324,27 +373,187 @@ class MainWindow(tk.Tk):
 
     def _render_report(self, report: DiscoveryReport) -> None:
         self._finish_discovery()
+        self._last_report = report
+        self._last_summary = None
+        if self._connection_service is not None:
+            self._last_plan = self._connection_service.build_plan(report)
+        else:
+            self._last_plan = ConnectionPlan(())
         self.environment_page.render_report(report)  # type: ignore[attr-defined]
+        if self._last_plan.issues:
+            self.environment_page.append_details(  # type: ignore[attr-defined]
+                "\n\nConexão automática:\n"
+                + "\n".join(f"  • {issue}" for issue in self._last_plan.issues)
+            )
+        self.environment_page.set_actions(  # type: ignore[attr-defined]
+            validate=bool(self._last_plan.targets),
+            export=self._diagnostic_exporter is not None,
+            manual=self._connection_service is not None,
+        )
         mode = _MODE_LABELS.get(report.mode, str(report.mode))
         firebird_count = len(report.services) + len(report.firebird_processes)
         self.mode_label.config(text=f"Modo: {mode}")
-        self.firebird_label.config(text=f"Firebird: {firebird_count} evidência(s)")
+        self.firebird_label.config(
+            text=(
+                f"Firebird: {report.firebird_version}"
+                if report.firebird_version
+                else f"Firebird: {firebird_count} evidência(s)"
+            )
+        )
         self.base_label.config(text=f"Bases: {len(report.databases)} candidata(s)")
         self.architecture_label.config(
             text=f"Arquitetura: {report.process_architecture} / {report.process_bits} bits"
         )
         self.status_label.config(text="Análise concluída")
+        if any("validada" in target.source for target in self._last_plan.targets):
+            self.connection_label.config(text="Conexão: validação anterior disponível")
         self.indicator_label.config(
             text=f"{len(report.issues)} aviso(s)" if report.issues else "Sem avisos"
         )
 
+    def start_connection_validation(self) -> None:
+        if self._closing or self._worker_running() or not self._last_plan.targets:
+            return
+        credentials = ask_credentials(self)
+        if credentials is None:
+            return
+        self._start_connection_worker(self._last_plan, credentials)
+
+    def start_manual_connection(self) -> None:
+        if self._closing or self._worker_running() or self._last_report is None:
+            return
+        if self._connection_service is None:
+            return
+        request = ask_manual_connection(self)
+        if request is None:
+            return
+        manual, credentials = request
+        plan = self._connection_service.build_plan(self._last_report, manual)
+        if not plan.targets:
+            credentials.clear()
+            show_message(self, "Conexão indisponível", "\n".join(plan.issues))
+            return
+        self._start_connection_worker(plan, credentials, manual)
+
+    def _start_connection_worker(
+        self,
+        plan: ConnectionPlan,
+        credentials: SessionCredentials,
+        manual: ManualConnectionInput | None = None,
+    ) -> None:
+        if self._connection_service is None:
+            credentials.clear()
+            return
+        self._last_plan = plan
+        self.environment_page.set_busy(True)  # type: ignore[attr-defined]
+        self.environment_page.set_actions(  # type: ignore[attr-defined]
+            validate=False, export=False, manual=False
+        )
+        self.progress.start(12)
+        self.status_label.config(text="Validando conexões Firebird em modo somente leitura...")
+        self.indicator_label.config(text="Validação em andamento")
+        self._discovery_started_at = time.monotonic()
+        self._connection_thread = threading.Thread(
+            target=self._run_connection,
+            args=(plan, credentials, manual),
+            name="connection-worker",
+            daemon=True,
+        )
+        self._connection_thread.start()
+
+    def _run_connection(
+        self,
+        plan: ConnectionPlan,
+        credentials: SessionCredentials,
+        manual: ManualConnectionInput | None,
+    ) -> None:
+        try:
+            assert self._connection_service is not None
+            self._events.put(
+                ("connection", self._connection_service.validate(plan, credentials, manual))
+            )
+        except Exception as exc:
+            credentials.clear()
+            LOGGER.exception("Validação de conexão falhou")
+            self._events.put(("connection_error", exc))
+
+    def _render_connection(self, summary: ConnectionSummary) -> None:
+        self._finish_discovery()
+        self._last_summary = summary
+        successful = summary.successful
+        self.environment_page.set_actions(  # type: ignore[attr-defined]
+            validate=bool(self._last_plan.targets),
+            export=self._diagnostic_exporter is not None,
+            manual=self._connection_service is not None,
+        )
+        lines = ["", "", "Validação de conexão:"]
+        for validation in summary.validations:
+            result = validation.result
+            status = "compatível" if result.success else f"falha: {result.message}"
+            lines.append(
+                f"  • {validation.target.database_path} — {status} ({validation.duration_ms} ms)"
+            )
+        self.environment_page.append_details("\n".join(lines))  # type: ignore[attr-defined]
+        self.records_label.config(text=f"Registros: {len(summary.validations)}")
+        if successful:
+            selected = successful[0]
+            classification = selected.result.classification
+            database_type = str(classification.database_type) if classification else "SIAF"
+            self.connection_label.config(text="Conexão: validada em somente leitura")
+            self.base_label.config(text=f"Base selecionada: {database_type}")
+            self.firebird_label.config(
+                text=f"Firebird: {selected.result.server_version or 'versão não informada'}"
+            )
+            self.status_label.config(text=f"{len(successful)} base(s) compatível(is)")
+            self.indicator_label.config(text="Conexão validada")
+        else:
+            self.connection_label.config(text="Conexão: não validada")
+            self.status_label.config(text="Nenhuma base pôde ser validada")
+            self.indicator_label.config(text="Verifique os avisos")
+
+    def _render_connection_error(self, _error: Exception) -> None:
+        self._finish_discovery()
+        self.connection_label.config(text="Conexão: falha inesperada")
+        self.status_label.config(text="Não foi possível concluir a validação Firebird")
+        self.indicator_label.config(text="Erro de conexão")
+        self.environment_page.append_details(  # type: ignore[attr-defined]
+            "\n\nA validação encontrou um erro inesperado. Consulte errors.log."
+        )
+        self.environment_page.set_actions(  # type: ignore[attr-defined]
+            validate=bool(self._last_plan.targets),
+            export=self._diagnostic_exporter is not None,
+            manual=self._connection_service is not None,
+        )
+
+    def export_diagnostic(self) -> None:
+        if self._last_report is None or self._diagnostic_exporter is None:
+            return
+        try:
+            output = self._diagnostic_exporter.export(
+                self._last_report,
+                targets=self._last_plan.targets,
+                summary=self._last_summary,
+            )
+        except OSError as exc:
+            LOGGER.exception("Não foi possível exportar o diagnóstico")
+            show_message(self, "Falha na exportação", str(exc))
+            return
+        self.output_label.config(text=f"Arquivo: {output}")
+        self.status_label.config(text="Diagnóstico técnico exportado com caminhos mascarados")
+
     def _render_error(self, error: Exception) -> None:
         self._finish_discovery()
+        self._last_report = None
+        self._last_plan = ConnectionPlan(())
+        self._last_summary = None
         self._set_header_unavailable()
         self.status_label.config(text="A análise encontrou um erro inesperado")
         self.indicator_label.config(text="Erro")
         self.environment_page.set_details(  # type: ignore[attr-defined]
             f"Não foi possível concluir a descoberta: {error}"
+        )
+        self.environment_page.set_actions(  # type: ignore[attr-defined]
+            validate=False, export=False, manual=False
         )
 
     def _finish_discovery(self) -> None:
