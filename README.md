@@ -3,16 +3,20 @@
 Aplicação desktop Windows para descobrir com segurança um ambiente SIAF/Firebird e, após
 validação, oferecer consultas de suporte em modo somente leitura.
 
-As **Fases 0, 1 e 2 estão concluídas**. A entrega atual cobre a fundação do repositório, a
-interface desktop e uma prova de descoberta: arquitetura do processo, processos/serviços,
-Registro do Windows, bibliotecas cliente Firebird, conexões TCP do SIAF e candidatos limitados
-a `SIAFW.FDB` e `SIAFLOJA.FDB`. Consultas funcionais e operações de escrita ainda não fazem
-parte da entrega.
+As **Fases 0, 1, 2 e 3 estão concluídas**. A entrega atual cobre a fundação do repositório, a
+interface desktop, o SQLite interno e uma prova de descoberta: arquitetura do processo,
+processos/serviços, Registro do Windows, bibliotecas cliente Firebird, conexões TCP do SIAF e
+candidatos limitados a `SIAFW.FDB` e `SIAFLOJA.FDB`. Consultas funcionais e operações de escrita
+ainda não fazem parte da entrega.
 
 Dados, logs e exportações são armazenados no perfil do usuário em
 `%LOCALAPPDATA%\SIAF Support Toolbox`. A variável `SIAF_TOOLBOX_HOME` permite usar outro
 diretório em desenvolvimento e testes. Os logs têm rotação automática e sanitização de
 credenciais conhecidas.
+
+O banco `data\siaf-support-toolbox.sqlite3` é criado automaticamente e mantém ambientes,
+bases descobertas, perfis manuais de contingência, histórico, templates, cache de estrutura e
+base de conhecimento. Ele não possui campo de senha; credenciais continuam restritas à sessão.
 
 A interface possui menu lateral com as áreas previstas no roadmap, temas claro e escuro e
 persistência de tamanho, posição, estado e última página. Os módulos de fases futuras aparecem

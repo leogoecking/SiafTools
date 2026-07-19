@@ -8,6 +8,7 @@ import time
 import tkinter as tk
 from contextlib import suppress
 from tkinter import ttk
+from typing import Protocol
 
 from siaf_support_toolbox.core.paths import AppPaths
 from siaf_support_toolbox.core.version import __version__
@@ -35,10 +36,14 @@ _MODE_LABELS = {
 }
 
 
+class DiscoveryProvider(Protocol):
+    def discover(self) -> DiscoveryReport: ...
+
+
 class MainWindow(tk.Tk):
     def __init__(
         self,
-        orchestrator: DiscoveryOrchestrator | None = None,
+        orchestrator: DiscoveryProvider | None = None,
         *,
         paths: AppPaths | None = None,
         preferences_store: WindowPreferencesStore | None = None,

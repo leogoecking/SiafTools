@@ -36,6 +36,17 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 - Tamanho, posição, estado maximizado e última página salvos em `window-state.json`.
 - Diálogo modal reutilizável e smoke test isolado da interface.
 - Descoberta migrada para worker daemon, permitindo fechamento imediato durante a análise.
+- Fase 3 concluída com banco SQLite interno criado automaticamente no perfil do usuário.
+- Migration versionada e idempotente com ambientes, bases, perfis manuais, histórico,
+  templates, auditoria, cache de estrutura e base de conhecimento.
+- Repositório local preserva a validação dos candidatos quando uma nova descoberta atualiza o
+  mesmo ambiente.
+- Serviço de descoberta persiste o resultado fora da interface e mantém falhas do histórico
+  local como avisos não fatais.
+- Perfis manuais não possuem campo de senha e mensagens de erro do histórico são sanitizadas.
+- Inicializações concorrentes do SQLite são serializadas para permitir múltiplas instâncias.
+- Executável x86 reconstruído com suporte ao SQLite e aprovado em criação do banco, descoberta
+  e fechamento normal.
 
 ### Limitações conhecidas
 

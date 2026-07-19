@@ -1158,6 +1158,13 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 ### Fase 3 — SQLite interno
 
+> **Concluída em 2026-07-18.** O SQLite interno agora é criado no bootstrap, possui migration
+> versionada e idempotente e persiste as descobertas sem compartilhar conexão entre threads.
+> Perfis de contingência não possuem senha, mensagens históricas são sanitizadas e uma base
+> validada continua reutilizável depois de novas análises. A validação encerrou com 79 testes,
+> cobertura combinada de 87% e smoke aprovado no executável x86. Consulte
+> `docs/phase-3-status.md`.
+
 **Entregas:**
 
 - Criar migrations.
