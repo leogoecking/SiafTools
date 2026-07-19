@@ -197,6 +197,65 @@ MIGRATIONS = (
             "CREATE INDEX IF NOT EXISTS idx_knowledge_module ON knowledge_entries(module, active)",
         ),
     ),
+    Migration(
+        2,
+        "enforce_database_compatibility",
+        (
+            """
+            UPDATE discovered_databases
+            SET selected = 0
+            WHERE compatibility_status <> 'compatible'
+               OR schema_signature IS NULL
+               OR TRIM(schema_signature) = ''
+            """,
+            """
+            UPDATE discovered_databases
+            SET compatibility_status = 'candidate'
+            WHERE compatibility_status NOT IN ('candidate', 'compatible', 'incompatible')
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS validate_database_compatibility_insert
+            BEFORE INSERT ON discovered_databases
+            WHEN NEW.compatibility_status NOT IN ('candidate', 'compatible', 'incompatible')
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid database compatibility status');
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS validate_database_compatibility_update
+            BEFORE UPDATE OF compatibility_status ON discovered_databases
+            WHEN NEW.compatibility_status NOT IN ('candidate', 'compatible', 'incompatible')
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid database compatibility status');
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS validate_database_selection_insert
+            BEFORE INSERT ON discovered_databases
+            WHEN NEW.selected = 1 AND (
+                NEW.compatibility_status <> 'compatible'
+                OR NEW.schema_signature IS NULL
+                OR TRIM(NEW.schema_signature) = ''
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'only compatible databases can be selected');
+            END
+            """,
+            """
+            CREATE TRIGGER IF NOT EXISTS validate_database_selection_update
+            BEFORE UPDATE OF selected, compatibility_status, schema_signature
+            ON discovered_databases
+            WHEN NEW.selected = 1 AND (
+                NEW.compatibility_status <> 'compatible'
+                OR NEW.schema_signature IS NULL
+                OR TRIM(NEW.schema_signature) = ''
+            )
+            BEGIN
+                SELECT RAISE(ABORT, 'only compatible databases can be selected');
+            END
+            """,
+        ),
+    ),
 )
 
 

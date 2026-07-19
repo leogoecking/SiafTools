@@ -32,14 +32,14 @@ executável PyInstaller de homologação.
 
 - Runtime de build: CPython 3.11.9 x86/32 bits.
 - Ruff: aprovado em `src`, `tests` e `scripts` pelo pipeline de build.
-- Testes: 79 aprovados.
+- Testes: 85 aprovados após a estabilização pós-fase.
 - Cobertura combinada dos testes e smoke da interface: 87%.
-- Migration reaplicada sem duplicação e testada com 12 inicializações concorrentes.
+- Migrations reaplicadas sem duplicação e testadas com 12 inicializações concorrentes.
 - Smoke da interface visitou as onze páginas, alternou o tema, validou o diálogo e fechou a
   janela normalmente.
 - Build PyInstaller `onedir` x86 concluído com o hook oficial de `sqlite3`.
 - Executável criou o SQLite, persistiu a descoberta e encerrou normalmente com código 0.
-- SHA-256 do executável: `12D066F87CFEC2FD62431E7AB207F106B430C72F34C5A7D95EF8C785FC60B864`.
+- SHA-256 do executável: `39884000F6567BE10CDA2C1F3C3D399F3A52889A7F28078F31921F73ED93809F`.
 
 ## Critérios de aceite
 
@@ -58,3 +58,19 @@ executável PyInstaller de homologação.
   ambiente; nesta fase a capacidade está disponível na camada de serviço/repositório.
 - A tabela de auditoria está criada, mas operações controladas continuam bloqueadas até as
   fases próprias de backup, prévia, confirmação e transação.
+
+## Estabilização pós-fase
+
+A revisão posterior encontrou e corrigiu quatro casos não cobertos inicialmente:
+
+- terminais que mudavam de servidor remoto reutilizavam o mesmo ambiente e podiam combinar o
+  endpoint atual com uma base histórica de outro servidor;
+- campos livres da base de conhecimento e de outros registros podiam receber uma credencial em
+  texto puro;
+- uma base incompatível podia ser marcada como selecionada e retornada como reutilizável;
+- um SQLite corrompido interrompia o bootstrap antes da janela e não chegava ao log da aplicação.
+
+A identidade do ambiente agora inclui endpoint remoto ou instalação local. Toda persistência
+textual passa por sanitização central. A migration 2 normaliza seleções anteriores e instala
+triggers de integridade. O bootstrap preserva o arquivo problemático, registra a exceção e
+mostra uma orientação de recuperação ao usuário.

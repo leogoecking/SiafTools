@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from siaf_support_toolbox.core.logging_config import redact_text
 from siaf_support_toolbox.database.sqlite_connection import SQLiteDatabase
-from siaf_support_toolbox.discovery.models import DiscoveryReport
+from siaf_support_toolbox.discovery.models import DatabaseCandidate, DiscoveryReport
 from siaf_support_toolbox.repositories.models import (
     ExecutionRecord,
     KnowledgeEntry,
@@ -43,28 +44,32 @@ class LocalRepository:
             (item for item in report.client_libraries if item.compatible_with_process),
             report.client_libraries[0] if report.client_libraries else None,
         )
+        machine_name = _text(machine_name)
+        siaf_path = _optional_text(siaf_path)
+        server_path = _optional_text(server_path)
+        endpoint_host = _optional_text(endpoint_host)
 
         with self.database.connect() as connection, connection:
             connection.execute(
                 "UPDATE detected_environments SET active = 0 WHERE machine_name = ?",
                 (machine_name,),
             )
-            existing = connection.execute(
-                """
-                SELECT id FROM detected_environments
-                WHERE machine_name = ? AND detection_mode = ?
-                ORDER BY last_scan DESC LIMIT 1
-                """,
-                (machine_name, str(report.mode)),
-            ).fetchone()
+            existing = self._find_environment(
+                connection,
+                machine_name,
+                str(report.mode),
+                endpoint_host,
+                endpoint_port,
+                server_path,
+            )
             values = (
                 siaf_path,
-                service.name if service else None,
+                _optional_text(service.name if service else None),
                 server_path,
                 None,
                 str(client.architecture) if client else None,
-                client.path if client else None,
-                client.name if client else None,
+                _optional_text(client.path if client else None),
+                _optional_text(client.name if client else None),
                 endpoint_host,
                 endpoint_port,
                 report.confidence,
@@ -111,15 +116,49 @@ class LocalRepository:
                 )
             return environment_id
 
+    @staticmethod
+    def _find_environment(
+        connection: sqlite3.Connection,
+        machine_name: str,
+        detection_mode: str,
+        host: str | None,
+        port: int | None,
+        server_path: str | None,
+    ) -> sqlite3.Row | None:
+        identity_sql = "detected_host = ? COLLATE NOCASE"
+        identity_value = host
+        if host is None and server_path is not None:
+            identity_sql = "firebird_server_path = ? COLLATE NOCASE"
+            identity_value = server_path
+        elif host is None:
+            identity_sql = "detected_host IS NULL AND firebird_server_path IS NULL"
+
+        parameters: list[object] = [machine_name, detection_mode]
+        if identity_value is not None:
+            parameters.append(identity_value)
+        parameters.append(port)
+        return connection.execute(
+            f"""
+            SELECT id FROM detected_environments
+            WHERE machine_name = ? AND detection_mode = ?
+              AND {identity_sql}
+              AND COALESCE(detected_port, -1) = COALESCE(?, -1)
+            ORDER BY last_scan DESC LIMIT 1
+            """,
+            parameters,
+        ).fetchone()
+
     def _upsert_database(
         self,
-        connection: Any,
+        connection: sqlite3.Connection,
         environment_id: int,
-        candidate: Any,
+        candidate: DatabaseCandidate,
         host: str | None,
         port: int | None,
         now: str,
     ) -> None:
+        safe_path = _text(candidate.path)
+        safe_host = _optional_text(host)
         existing = connection.execute(
             """
             SELECT id FROM discovered_databases
@@ -128,7 +167,7 @@ class LocalRepository:
               AND COALESCE(database_port, -1) = COALESCE(?, -1)
             LIMIT 1
             """,
-            (environment_id, candidate.path, host, port),
+            (environment_id, safe_path, safe_host, port),
         ).fetchone()
         modified_at = _file_modified_at(candidate.path)
         if existing:
@@ -139,7 +178,7 @@ class LocalRepository:
                 WHERE id = ?
                 """,
                 (
-                    candidate.kind_hint,
+                    _text(candidate.kind_hint),
                     candidate.size_bytes,
                     modified_at,
                     candidate.score,
@@ -158,9 +197,9 @@ class LocalRepository:
             """,
             (
                 environment_id,
-                candidate.kind_hint,
-                candidate.path,
-                host,
+                _text(candidate.kind_hint),
+                safe_path,
+                safe_host,
                 port,
                 candidate.size_bytes,
                 modified_at,
@@ -180,6 +219,10 @@ class LocalRepository:
     ) -> None:
         if not schema_signature.strip():
             raise ValueError("A assinatura de esquema validada não pode ser vazia")
+        if compatibility_status not in {"compatible", "incompatible"}:
+            raise ValueError("Status de compatibilidade inválido")
+        if selected and compatibility_status != "compatible":
+            raise ValueError("Uma base incompatível não pode ser selecionada")
         now = _utc_now()
         with self.database.connect() as connection, connection:
             row = connection.execute(
@@ -198,7 +241,7 @@ class LocalRepository:
                 SET schema_signature = ?, compatibility_status = ?, selected = ?, last_seen = ?
                 WHERE id = ?
                 """,
-                (schema_signature, compatibility_status, int(selected), now, database_id),
+                (_text(schema_signature), compatibility_status, int(selected), now, database_id),
             )
             connection.execute(
                 "UPDATE detected_environments SET last_success = ? WHERE id = ?",
@@ -214,11 +257,11 @@ class LocalRepository:
                     SELECT 1 FROM discovered_databases AS database
                     WHERE database.environment_id = environment.id
                       AND database.schema_signature IS NOT NULL
-                      AND database.compatibility_status <> 'candidate'
+                      AND database.compatibility_status = 'compatible'
                 )
                 ORDER BY active DESC, last_success DESC LIMIT 1
                 """,
-                (machine_name,),
+                (_text(machine_name),),
             ).fetchone()
             if environment is None:
                 return None
@@ -229,7 +272,7 @@ class LocalRepository:
                     """
                     SELECT * FROM discovered_databases
                     WHERE environment_id = ? AND schema_signature IS NOT NULL
-                      AND compatibility_status <> 'candidate'
+                      AND compatibility_status = 'compatible'
                     ORDER BY selected DESC, last_seen DESC
                     """,
                     (environment["id"],),
@@ -240,15 +283,15 @@ class LocalRepository:
     def save_manual_profile(self, profile: ManualConnectionProfile) -> int:
         now = _utc_now()
         values = (
-            profile.name,
+            _text(profile.name),
             profile.environment_id,
-            profile.host,
+            _optional_text(profile.host),
             profile.port,
-            profile.database_path,
-            profile.database_type,
-            profile.username,
-            profile.charset,
-            profile.fbclient_path,
+            _text(profile.database_path),
+            _optional_text(profile.database_type),
+            _optional_text(profile.username),
+            _optional_text(profile.charset),
+            _optional_text(profile.fbclient_path),
             int(profile.favorite),
             int(profile.active),
         )
@@ -291,21 +334,21 @@ class LocalRepository:
 
     def upsert_query_template(self, template: QueryTemplate) -> int:
         values = (
-            template.module,
-            template.description,
-            template.sql_template,
+            _text(template.module),
+            _text(template.description),
+            _text(template.sql_template),
             _json(template.required_tables),
             _json(template.required_fields),
             _json(template.parameters_schema),
             int(template.read_only),
-            template.risk_level,
+            _text(template.risk_level),
             int(template.enabled),
-            template.source_reference,
+            _optional_text(template.source_reference),
         )
         with self.database.connect() as connection, connection:
             existing = connection.execute(
                 "SELECT id FROM query_templates WHERE name = ? AND version = ?",
-                (template.name, template.version),
+                (_text(template.name), _text(template.version)),
             ).fetchone()
             if existing:
                 connection.execute(
@@ -325,7 +368,7 @@ class LocalRepository:
                     parameters_schema, read_only, risk_level, enabled, version, source_reference
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (template.name, *values[:-1], template.version, values[-1]),
+                (_text(template.name), *values[:-1], _text(template.version), values[-1]),
             )
             return int(cursor.lastrowid)
 
@@ -342,18 +385,18 @@ class LocalRepository:
                 (
                     record.environment_id,
                     record.database_id,
-                    record.action_name,
-                    record.action_type,
-                    record.started_at,
-                    record.finished_at,
+                    _text(record.action_name),
+                    _text(record.action_type),
+                    _text(record.started_at),
+                    _optional_text(record.finished_at),
                     int(record.success),
                     record.records_processed,
                     record.duration_ms,
-                    record.error_code,
-                    redact_text(record.error_message) if record.error_message else None,
-                    record.output_file,
-                    record.app_version,
-                    record.windows_user,
+                    _optional_text(record.error_code),
+                    _optional_text(record.error_message),
+                    _optional_text(record.output_file),
+                    _text(record.app_version),
+                    _optional_text(record.windows_user),
                 ),
             )
             return int(cursor.lastrowid)
@@ -371,15 +414,15 @@ class LocalRepository:
                 [
                     (
                         database_id,
-                        field.relation_name,
-                        field.field_name,
-                        field.field_type,
+                        _text(field.relation_name),
+                        _text(field.field_name),
+                        _text(field.field_type),
                         field.field_length,
                         field.field_scale,
                         int(field.nullable),
                         int(field.primary_key),
                         _json(field.index_names),
-                        field.checked_at or _utc_now(),
+                        _text(field.checked_at) if field.checked_at else _utc_now(),
                     )
                     for field in fields
                 ],
@@ -390,12 +433,12 @@ class LocalRepository:
             _json(entry.symptoms),
             _json(entry.causes),
             _json(entry.solution),
-            entry.system_path,
+            _optional_text(entry.system_path),
             _json(entry.validations),
-            entry.observations,
+            _optional_text(entry.observations),
             _json(entry.keywords),
             entry.confidence_level,
-            entry.source,
+            _optional_text(entry.source),
             int(entry.active),
         )
         with self.database.connect() as connection, connection:
@@ -404,7 +447,12 @@ class LocalRepository:
                 SELECT id FROM knowledge_entries
                 WHERE category = ? AND module = ? AND problem = ? AND version = ?
                 """,
-                (entry.category, entry.module, entry.problem, entry.version),
+                (
+                    _text(entry.category),
+                    _text(entry.module),
+                    _text(entry.problem),
+                    _text(entry.version),
+                ),
             ).fetchone()
             if existing:
                 connection.execute(
@@ -426,11 +474,11 @@ class LocalRepository:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    entry.category,
-                    entry.module,
-                    entry.problem,
+                    _text(entry.category),
+                    _text(entry.module),
+                    _text(entry.problem),
                     *values[:-1],
-                    entry.version,
+                    _text(entry.version),
                     values[-1],
                 ),
             )
@@ -469,4 +517,22 @@ def _utc_now() -> str:
 
 
 def _json(value: object) -> str:
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    return json.dumps(_redact_payload(value), ensure_ascii=False, separators=(",", ":"))
+
+
+def _redact_payload(value: object) -> object:
+    if isinstance(value, str):
+        return _text(value)
+    if isinstance(value, dict):
+        return {_text(str(key)): _redact_payload(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_payload(item) for item in value]
+    return value
+
+
+def _text(value: str) -> str:
+    return redact_text(value)
+
+
+def _optional_text(value: str | None) -> str | None:
+    return _text(value) if value is not None else None

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
+from siaf_support_toolbox.database.migrations import MIGRATIONS
 from siaf_support_toolbox.database.sqlite_connection import SQLiteDatabase
 from siaf_support_toolbox.discovery.models import (
     Architecture,
@@ -75,7 +79,10 @@ def test_initialize_creates_all_tables_and_is_idempotent(tmp_path):
         migrations = connection.execute("SELECT version, name FROM schema_migrations").fetchall()
 
     assert tables >= EXPECTED_TABLES
-    assert [(row["version"], row["name"]) for row in migrations] == [(1, "initial_local_store")]
+    assert [(row["version"], row["name"]) for row in migrations] == [
+        (1, "initial_local_store"),
+        (2, "enforce_database_compatibility"),
+    ]
 
 
 def test_initialize_is_safe_for_concurrent_application_starts(tmp_path):
@@ -85,7 +92,51 @@ def test_initialize_is_safe_for_concurrent_application_starts(tmp_path):
         list(executor.map(lambda _index: database.initialize(), range(12)))
 
     with database.connect() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
+
+
+def test_second_migration_cleans_invalid_selection_from_phase_three_database(tmp_path):
+    database = SQLiteDatabase(tmp_path / "toolbox.sqlite3")
+    database.path.parent.mkdir(parents=True, exist_ok=True)
+    with database.connect() as connection, connection:
+        connection.execute(
+            """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
+            )
+            """
+        )
+        for statement in MIGRATIONS[0].statements:
+            connection.execute(statement)
+        connection.execute(
+            "INSERT INTO schema_migrations VALUES (1, 'initial_local_store', '2026-07-18')"
+        )
+        environment_id = connection.execute(
+            """
+            INSERT INTO detected_environments (
+                machine_name, detection_mode, last_scan, active
+            ) VALUES ('PC', 'assistido', '2026-07-18', 1)
+            """
+        ).lastrowid
+        connection.execute(
+            """
+            INSERT INTO discovered_databases (
+                environment_id, database_path, compatibility_status,
+                selected, first_seen, last_seen
+            ) VALUES (?, 'D:/INVALIDA.FDB', 'incompatible', 1, '2026-07-18', '2026-07-18')
+            """,
+            (environment_id,),
+        )
+
+    database.initialize()
+
+    with database.connect() as connection:
+        row = connection.execute(
+            "SELECT compatibility_status, selected FROM discovered_databases"
+        ).fetchone()
+        migrations = connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
+    assert (row["compatibility_status"], row["selected"]) == ("incompatible", 0)
+    assert migrations == 2
 
 
 def test_schema_has_no_field_for_password_or_secret(tmp_path):
@@ -136,6 +187,68 @@ def test_discovery_upsert_preserves_validation_and_reuses_it(tmp_path):
     assert reusable is not None
     assert reusable["id"] == environment_id
     assert reusable["databases"][0]["id"] == database_id
+
+
+def test_remote_server_change_creates_a_separate_environment(tmp_path):
+    database, repository = make_store(tmp_path)
+    first = make_report("D:/LOJA-A/SIAFLOJA.FDB")
+    second = make_report("E:/LOJA-B/SIAFLOJA.FDB")
+    second.network_connections = [NetworkFinding(10, "10.0.0.2", 50000, "10.0.0.20", 3050)]
+
+    first_environment = repository.record_discovery("CAIXA-01", first)
+    repeated_environment = repository.record_discovery("CAIXA-01", first)
+    second_environment = repository.record_discovery("CAIXA-01", second)
+
+    with database.connect() as connection:
+        environments = connection.execute(
+            "SELECT id, detected_host, active FROM detected_environments ORDER BY id"
+        ).fetchall()
+        databases = connection.execute(
+            "SELECT environment_id, database_host FROM discovered_databases ORDER BY id"
+        ).fetchall()
+
+    assert repeated_environment == first_environment
+    assert second_environment != first_environment
+    assert [(row["detected_host"], row["active"]) for row in environments] == [
+        ("10.0.0.10", 0),
+        ("10.0.0.20", 1),
+    ]
+    assert [(row["environment_id"], row["database_host"]) for row in databases] == [
+        (first_environment, "10.0.0.10"),
+        (second_environment, "10.0.0.20"),
+    ]
+
+
+def test_incompatible_or_invalid_database_cannot_be_selected_or_reused(tmp_path):
+    database, repository = make_store(tmp_path)
+    repository.record_discovery("PC", make_report("D:/Dados/NAO-SIAF.FDB"))
+    with database.connect() as connection:
+        database_id = int(connection.execute("SELECT id FROM discovered_databases").fetchone()[0])
+
+    with pytest.raises(ValueError, match="incompatível"):
+        repository.mark_database_validated(
+            database_id,
+            schema_signature="not-siaf",
+            compatibility_status="incompatible",
+            selected=True,
+        )
+    with pytest.raises(ValueError, match="Status"):
+        repository.mark_database_validated(
+            database_id,
+            schema_signature="unknown",
+            compatibility_status="unknown",
+        )
+
+    repository.mark_database_validated(
+        database_id,
+        schema_signature="not-siaf",
+        compatibility_status="incompatible",
+    )
+    assert repository.latest_validated_discovery("PC") is None
+    with database.connect() as connection, connection, pytest.raises(sqlite3.IntegrityError):
+        connection.execute(
+            "UPDATE discovered_databases SET selected = 1 WHERE id = ?", (database_id,)
+        )
 
 
 def test_manual_profile_never_accepts_or_returns_a_password_field(tmp_path):
@@ -235,3 +348,36 @@ def test_phase_three_catalogs_and_history_are_persisted(tmp_path):
     assert history["error_message"] == "password=[REDACTED]"
     assert json.loads(cache["index_names"]) == []
     assert json.loads(knowledge["solution_json"]) == ["Validar o ambiente"]
+
+
+def test_sensitive_values_are_redacted_from_all_free_text_payloads(tmp_path):
+    database, repository = make_store(tmp_path)
+    secret = "SEGREDO-LOCAL-987"
+
+    repository.save_manual_profile(
+        ManualConnectionProfile(
+            name=f"Fallback password={secret}",
+            database_path="D:/Dados/SIAFLOJA.FDB",
+        )
+    )
+    repository.upsert_knowledge_entry(
+        KnowledgeEntry(
+            category="segurança",
+            module="firebird",
+            problem="Credencial exposta",
+            solution=(f"senha={secret}",),
+            observations=f"token={secret}",
+            version="1",
+        )
+    )
+
+    with database.connect() as connection:
+        profile_name = connection.execute("SELECT name FROM connection_profiles").fetchone()[0]
+        knowledge = connection.execute(
+            "SELECT solution_json, observations FROM knowledge_entries"
+        ).fetchone()
+
+    assert secret not in profile_name
+    assert secret not in knowledge["solution_json"]
+    assert secret not in knowledge["observations"]
+    assert secret.encode() not in database.path.read_bytes()

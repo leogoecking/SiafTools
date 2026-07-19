@@ -87,3 +87,17 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
   concorrentes entre instâncias.
 - Suíte ampliada para 70 testes e cobertura combinada elevada para 85%.
 - Executável x86 reconstruído e aprovado em abertura, descoberta e fechamento normal.
+
+### Corrigido após a Fase 3
+
+- Ambientes da mesma máquina e modo passam a ser separados pelo servidor remoto ou pela
+  instalação Firebird local, impedindo mistura de bases entre endpoints.
+- Sanitização de credenciais centralizada para textos e estruturas JSON antes de qualquer
+  gravação pelos repositórios locais.
+- Migration 2 corrige seleções inválidas existentes e cria barreiras SQLite para estados de
+  compatibilidade desconhecidos ou seleção de bases incompatíveis.
+- Recuperação de descoberta considera reutilizáveis somente bases compatíveis com assinatura
+  validada.
+- Falhas ao abrir o SQLite no bootstrap são registradas e exibem orientação ao usuário sem
+  apagar ou substituir o arquivo existente.
+- Suíte ampliada para 85 testes, mantendo cobertura combinada em 87%.
