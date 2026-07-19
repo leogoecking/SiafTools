@@ -17,6 +17,10 @@ from siaf_support_toolbox.discovery.database_locator import locate_databases
 from siaf_support_toolbox.discovery.firebird_client_detector import detect_client_libraries
 from siaf_support_toolbox.discovery.mode_classifier import classify_machine
 from siaf_support_toolbox.discovery.models import DetectionIssue, DiscoveryReport, Evidence
+from siaf_support_toolbox.discovery.network_candidates import (
+    correlated_firebird_ports,
+    is_local_address,
+)
 from siaf_support_toolbox.discovery.network_detector import detect_process_connections
 from siaf_support_toolbox.discovery.process_detector import (
     detect_firebird_processes,
@@ -126,16 +130,35 @@ class DiscoveryOrchestrator:
             ([],),
         )
         report.issues.extend(issues)
-        network_candidate_ports = {
+        probable_firebird_ports = {
             item.remote_port
             for item in report.network_connections
             if DEFAULT_FIREBIRD_PORT <= item.remote_port < DEFAULT_FIREBIRD_PORT + 100
         }
-        report.detected_ports = sorted(
+        correlated_ports = correlated_firebird_ports(
+            report.connection_references, report.network_connections
+        )
+        remote_network_ports = {
+            item.remote_port
+            for item in report.network_connections
+            if not is_local_address(item.remote_address)
+        }
+        confirmed_ports = (
             {configuration.port for configuration in report.firebird_configurations}
             | {reference.port for reference in report.connection_references}
-            | network_candidate_ports
-        ) or [DEFAULT_FIREBIRD_PORT]
+            | probable_firebird_ports
+            | correlated_ports
+        )
+        report.network_candidate_ports = sorted(remote_network_ports - confirmed_ports)
+        report.detected_ports = sorted(confirmed_ports) or [DEFAULT_FIREBIRD_PORT]
+        report.evidence.extend(
+            Evidence(
+                "porta_tcp_siaf_candidata",
+                f"Porta remota {port} observada; requer confirmação assistida",
+                10,
+            )
+            for port in report.network_candidate_ports
+        )
 
         report.mode, report.confidence, mode_evidence = classify_machine(report)
         report.evidence.extend(mode_evidence)

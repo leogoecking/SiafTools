@@ -37,3 +37,20 @@ def test_keeps_multiple_firebird_instances_separate(tmp_path):
     assert [item.port for item in configurations] == [3050, 3055]
     assert configurations[0].aliases[0].alias == "LOJA"
     assert configurations[1].aliases == ()
+
+
+def test_reads_utf16_firebird_configuration(tmp_path):
+    root = tmp_path / "Firebird25"
+    root.mkdir()
+    (root / "firebird.conf").write_text("RemoteServicePort = 4050", encoding="utf-16")
+    (root / "aliases.conf").write_text(
+        "SÃO_JOÃO = C:\\Dados\\São João\\SIAFLOJA.FDB",
+        encoding="utf-16",
+    )
+
+    configurations, issues = detect_firebird_configurations([root])
+
+    assert issues == []
+    assert configurations[0].port == 4050
+    assert configurations[0].aliases[0].alias == "SÃO_JOÃO"
+    assert configurations[0].aliases[0].database == "C:\\Dados\\São João\\SIAFLOJA.FDB"

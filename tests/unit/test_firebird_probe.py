@@ -172,6 +172,8 @@ def test_probe_blocks_incompatible_library_before_import(monkeypatch):
         ("unsupported ODS", "compatível"),
         ("login invalid", "credencial"),
         ("SQLCODE -902 CreateFile", "caminho"),
+        ("SQLCODE -902 connection reset by peer", "alcançar"),
+        ("SQLCODE -902 operação desconhecida", "validar"),
     ],
 )
 def test_translates_connection_errors_without_echoing_details(message, translated):

@@ -172,13 +172,13 @@ def _translate_error(error: Exception) -> str:
         return "O cliente/servidor não é compatível com a estrutura da base"
     if "password" in lowered or "login" in lowered:
         return "A credencial autorizada não foi aceita pelo Firebird"
-    if "createfile" in lowered or "-902" in lowered:
-        return "O caminho detectado não é válido para o serviço Firebird"
     if any(
         marker in lowered
         for marker in ("connection refused", "timed out", "unreachable", "connection reset")
     ):
         return "Não foi possível alcançar automaticamente o serviço Firebird"
+    if "createfile" in lowered:
+        return "O caminho detectado não é válido para o serviço Firebird"
     return "Não foi possível validar a conexão Firebird"
 
 

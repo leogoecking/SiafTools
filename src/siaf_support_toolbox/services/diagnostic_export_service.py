@@ -24,6 +24,10 @@ _PATH_KEYS = {
     "target_path",
     "working_directory",
 }
+_EMBEDDED_PATH = re.compile(
+    r"(?i)(?P<path>(?:[a-z]:[\\/]|\\\\|%[a-z0-9_()]+%[\\/])"
+    r"[^\"'\r\n;|<>\[\]{}]*)"
+)
 
 
 class DiagnosticExportService:
@@ -103,12 +107,27 @@ def _mask_payload(value: object, key: str | None = None) -> object:
         return {name: _mask_payload(item, name) for name, item in value.items()}
     if isinstance(value, list):
         return [_mask_payload(item, key) for item in value]
-    if isinstance(value, str) and (key in _PATH_KEYS or _looks_like_path(value)):
-        name = Path(value).name or "local"
-        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
-        return f"<mascarado>/{name} [id:{digest}]"
+    if isinstance(value, str):
+        if key in _PATH_KEYS or _looks_like_path(value):
+            return _masked_path(value)
+        return _mask_embedded_paths(value)
     return value
 
 
 def _looks_like_path(value: str) -> bool:
-    return bool(re.match(r"(?i)^(?:[a-z]:[\\/]|\\\\)", value.strip()))
+    return bool(
+        re.match(
+            r"(?i)^(?:[a-z]:[\\/]|\\\\|%[a-z0-9_()]+%[\\/])",
+            value.strip(),
+        )
+    )
+
+
+def _mask_embedded_paths(value: str) -> str:
+    return _EMBEDDED_PATH.sub(lambda match: _masked_path(match.group("path").rstrip()), value)
+
+
+def _masked_path(value: str) -> str:
+    name = Path(value).name or "local"
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    return f"<mascarado>/{name} [id:{digest}]"

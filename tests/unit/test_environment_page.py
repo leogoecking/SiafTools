@@ -15,6 +15,7 @@ def test_format_discovery_report_uses_only_detected_evidence():
         process_bits=32,
         mode=MachineMode.LOCAL_SERVER,
         confidence=80,
+        network_candidate_ports=[4050],
         databases=[DatabaseCandidate("C:/SIAFW/SIAFW.FDB", "SIAFW", 100, 90)],
         client_libraries=[
             ClientLibraryFinding(
@@ -33,6 +34,7 @@ def test_format_discovery_report_uses_only_detected_evidence():
     assert "SIAFW: C:/SIAFW/SIAFW.FDB (pontuação 90)" in text
     assert "fbclient.dll — x86, compatível" in text
     assert "registro: acesso parcial" in text
+    assert "Portas TCP candidatas para confirmação: 4050" in text
 
 
 def test_format_discovery_report_limits_issue_details():

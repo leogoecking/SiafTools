@@ -16,6 +16,9 @@ from siaf_support_toolbox.database.firebird_probe import (
     runtime_compatibility_issue,
 )
 from siaf_support_toolbox.discovery.models import DiscoveryReport, MachineMode
+from siaf_support_toolbox.discovery.network_candidates import (
+    correlated_connections_for_reference,
+)
 from siaf_support_toolbox.repositories.local_repository import LocalRepository
 from siaf_support_toolbox.repositories.models import ExecutionRecord, ManualConnectionProfile
 
@@ -197,19 +200,29 @@ class FirebirdConnectionService:
             reference_host = reference.host or (
                 host if report.mode == MachineMode.TERMINAL else "localhost"
             )
-            targets.append(
-                ConnectionTarget(
-                    int(environment["id"]),
-                    None,
-                    reference_host,
-                    reference.port,
-                    reference.database,
-                    "DESCONHECIDA",
-                    library,
-                    "configuracao_siaf",
-                    80 if reference.host else 60,
+            endpoints = {(reference_host, reference.port, "configuracao_siaf")}
+            endpoints.update(
+                (item.remote_address, item.remote_port, "configuracao_siaf_tcp")
+                for item in correlated_connections_for_reference(
+                    reference,
+                    report.connection_references,
+                    report.network_connections,
                 )
             )
+            for endpoint_host, endpoint_port, source in endpoints:
+                targets.append(
+                    ConnectionTarget(
+                        int(environment["id"]),
+                        None,
+                        endpoint_host,
+                        endpoint_port,
+                        reference.database,
+                        "DESCONHECIDA",
+                        library,
+                        source,
+                        90 if source == "configuracao_siaf_tcp" else 80 if reference.host else 60,
+                    )
+                )
 
         historical = self.repository.latest_validated_discovery(self.machine_name)
         if historical and not targets:

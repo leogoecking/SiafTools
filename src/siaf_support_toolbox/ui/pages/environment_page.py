@@ -108,6 +108,10 @@ def format_discovery_report(report: DiscoveryReport) -> str:
         f"Conexões TCP do SIAF: {len(report.network_connections)}",
         f"Referências de conexão do SIAF: {len(report.connection_references)}",
         f"Portas Firebird detectadas: {', '.join(map(str, report.detected_ports))}",
+        (
+            "Portas TCP candidatas para confirmação: "
+            + (", ".join(map(str, report.network_candidate_ports)) or "nenhuma")
+        ),
         f"Aliases Firebird: {len(report.aliases)}",
         f"Bases candidatas: {len(report.databases)}",
     ]

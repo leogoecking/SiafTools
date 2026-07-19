@@ -5,6 +5,7 @@ from pathlib import Path
 
 from siaf_support_toolbox.core.constants import DEFAULT_FIREBIRD_PORT
 from siaf_support_toolbox.discovery.bounded_scan import find_exact_names
+from siaf_support_toolbox.discovery.configuration_reader import read_configuration_text
 from siaf_support_toolbox.discovery.models import (
     AliasFinding,
     DetectionIssue,
@@ -48,7 +49,7 @@ def detect_firebird_configurations(
     grouped: dict[str, dict[str, object]] = {}
     for path in matches:
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            text = read_configuration_text(path)
             root = str(path.parent.resolve(strict=False))
             group = grouped.setdefault(
                 root,
@@ -65,7 +66,7 @@ def detect_firebird_configurations(
             else:
                 group["port"] = parse_firebird_port(text)
                 group["config_file"] = str(path)
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             issues.append(DetectionIssue("config_firebird", f"{path}: {exc}"))
     if scan_errors:
         issues.append(

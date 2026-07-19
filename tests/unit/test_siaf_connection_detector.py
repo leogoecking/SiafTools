@@ -34,3 +34,14 @@ def test_detector_scans_only_bounded_configuration_files(tmp_path):
 
     assert issues == []
     assert [(item.host, item.database) for item in findings] == [("servidor", "LOJA01")]
+
+
+def test_detector_preserves_cp1252_paths_with_accents(tmp_path):
+    config = tmp_path / "siaf.ini"
+    config.write_bytes("Database=servidor:C:\\Dados\\São João\\SIAFLOJA.FDB".encode("cp1252"))
+
+    findings, issues = detect_siaf_connection_references([tmp_path])
+
+    assert issues == []
+    assert len(findings) == 1
+    assert findings[0].database == "C:\\Dados\\São João\\SIAFLOJA.FDB"

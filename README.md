@@ -17,6 +17,11 @@ estiver carregada, o aplicativo solicita uma reinicialização em vez de ignorar
 a biblioteca selecionada. O diagnóstico técnico pode ser exportado pela mesma página com
 caminhos mascarados e sem credenciais.
 
+Configurações do SIAF e do Firebird são lidas em UTF-8, UTF-16 ou CP1252 para preservar
+caminhos acentuados de instalações antigas. Portas TCP observadas fora da faixa convencional
+são correlacionadas com referências de base quando há evidência suficiente; caso contrário,
+aparecem separadamente como candidatas para confirmação assistida.
+
 Dados, logs e exportações são armazenados no perfil do usuário em
 `%LOCALAPPDATA%\SIAF Support Toolbox`. A variável `SIAF_TOOLBOX_HOME` permite usar outro
 diretório em desenvolvimento e testes. Os logs têm rotação automática e sanitização de
@@ -70,7 +75,8 @@ python scripts\ui_smoke.py
 ```
 
 O diagnóstico de linha de comando não solicita nem registra credenciais. A exportação pela
-interface também mascara caminhos conhecidos; ainda assim, revise o JSON antes de anexá-lo a
+interface mascara caminhos em campos próprios, DSNs, mensagens, comandos, valores do Registro,
+variáveis de ambiente e compartilhamentos UNC; ainda assim, revise o JSON antes de anexá-lo a
 tickets.
 
 Para validar as bases descobertas sem colocar senha na linha de comando ou em arquivos:

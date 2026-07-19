@@ -19,7 +19,17 @@ def test_diagnostic_export_masks_paths_and_uses_collision_safe_names(tmp_path):
             ClientLibraryFinding("C:/SIAF/fbclient.dll", "fbclient.dll", Architecture.X86, True)
         ],
         databases=[DatabaseCandidate("D:/Clientes/Loja01/SIAFLOJA.FDB", "SIAFLOJA", 10, 80)],
-        evidence=[Evidence("configuração", "C:/SIAF/firebird.conf", 20)],
+        evidence=[
+            Evidence("configuração", "C:/SIAF/firebird.conf", 20),
+            Evidence(
+                "dsn",
+                "servidor:3050:C:\\Clientes\\Loja 01\\SIAFLOJA.FDB",
+                20,
+            ),
+            Evidence("registro", '"C:\\Program Files (x86)\\SIAF\\SIAFW.EXE" -server', 10),
+            Evidence("perfil", "%LOCALAPPDATA%\\SIAF\\config.ini", 10),
+            Evidence("compartilhamento", "\\\\servidor\\dados\\SIAFW.FDB", 10),
+        ],
     )
     target = ConnectionTarget(
         1,
@@ -44,5 +54,9 @@ def test_diagnostic_export_masks_paths_and_uses_collision_safe_names(tmp_path):
     assert payload["paths_masked"] is True
     assert "D:/Clientes" not in raw
     assert "C:/SIAF" not in raw
+    assert "C:\\Clientes" not in raw
+    assert "C:\\Program Files" not in raw
+    assert "%LOCALAPPDATA%" not in raw
+    assert "\\\\servidor\\dados" not in raw
     assert "SIAFLOJA.FDB" in raw
     assert not list(tmp_path.glob("*.tmp"))

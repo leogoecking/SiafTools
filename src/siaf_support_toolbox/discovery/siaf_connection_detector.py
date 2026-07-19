@@ -6,6 +6,7 @@ from collections import deque
 from pathlib import Path
 
 from siaf_support_toolbox.core.constants import DEFAULT_FIREBIRD_PORT
+from siaf_support_toolbox.discovery.configuration_reader import read_configuration_text
 from siaf_support_toolbox.discovery.models import ConnectionReferenceFinding, DetectionIssue
 
 _CONFIG_SUFFIXES = {".cfg", ".conf", ".ini", ".txt"}
@@ -98,9 +99,9 @@ def detect_siaf_connection_references(
                         ):
                             inspected_files += 1
                             path = Path(entry.path)
-                            text = path.read_text(encoding="utf-8", errors="replace")
+                            text = read_configuration_text(path)
                             findings.extend(parse_connection_references(text, str(path)))
-                    except OSError as exc:
+                    except (OSError, UnicodeError) as exc:
                         errors.append(f"{entry.path}: {exc}")
         except OSError as exc:
             errors.append(f"{current}: {exc}")

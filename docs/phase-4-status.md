@@ -44,14 +44,14 @@ precisa ser homologado em um ambiente real.
 - O plano automático preparou as duas conexões por `localhost` sem solicitar host, porta ou
   caminho.
 - Ruff e verificações do pipeline de build: aprovados.
-- Testes: 100 aprovados.
+- Testes: 107 aprovados.
 - Cobertura combinada da suíte e do smoke da interface: 85%.
 - Smoke da interface visitou as onze páginas, abriu os diálogos de credenciais e fallback,
   apagou as credenciais de teste e fechou normalmente.
 - Executável PyInstaller `onedir` x86 iniciou, executou a descoberta, criou o SQLite e recebeu
   fechamento normal; `errors.log` permaneceu vazio.
 - SHA-256 do executável:
-  `62100159A033781C277CD7504A7C837BD7E79507DC93EDEE21F8239315083ABA`.
+  `DFEC1FAE4FAEF028AEFE1570BA9847DA89E87A6D60F65CF30367067EBE6EABB1`.
 
 ## Segurança comprovada
 
@@ -99,3 +99,18 @@ O probe e o serviço agora aplicam a matriz de compatibilidade em duas camadas. 
 incorpora portas observadas na faixa usual de instâncias Firebird, e o plano mantém a associação
 entre configuração, alias, base e porta. A DLL efetivamente carregada é comparada com a
 solicitada; uma divergência interrompe a validação com orientação para reiniciar o aplicativo.
+
+Uma segunda revisão em 2026-07-19 corrigiu os pontos restantes:
+
+- arquivos de configuração antigos em CP1252 e arquivos UTF-16 agora preservam caminhos e
+  aliases acentuados, com falhas isoladas por arquivo;
+- o mascaramento percorre também caminhos embutidos em DSNs, mensagens, comandos, valores do
+  Registro, variáveis de ambiente e caminhos UNC;
+- erros `-902` de rede, `CreateFile` e causas desconhecidas recebem orientações diferentes;
+- portas arbitrárias são correlacionadas automaticamente quando uma referência de conexão e o
+  TCP do processo SIAF fornecem uma associação inequívoca. Sem essa correlação, a porta é
+  exibida como candidata assistida e não aumenta a confiança do modo terminal.
+
+O build x86 após essa revisão manteve a descoberta local em modo servidor, identificou
+Firebird `2.5.7.27050`, porta `3050`, duas bases e nenhum aviso. O executável criou o SQLite,
+fechou normalmente e deixou `errors.log` vazio.

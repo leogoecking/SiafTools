@@ -7,6 +7,7 @@ from siaf_support_toolbox.database.sqlite_connection import SQLiteDatabase
 from siaf_support_toolbox.discovery.models import (
     Architecture,
     ClientLibraryFinding,
+    ConnectionReferenceFinding,
     DatabaseCandidate,
     DiscoveryReport,
     FirebirdConfigurationFinding,
@@ -203,3 +204,23 @@ def test_multiple_firebird_instances_keep_their_own_ports(tmp_path):
     assert ("LOJA_B", 3055) in ports_by_target
     assert (second_path, 3050) not in ports_by_target
     assert ("LOJA_B", 3050) not in ports_by_target
+
+
+def test_terminal_correlates_reference_with_arbitrary_active_port(tmp_path):
+    _database, repository = make_repository(tmp_path)
+    report = make_report("C:/CopiaLocal/SIAFLOJA.FDB")
+    report.mode = MachineMode.TERMINAL
+    report.databases = []
+    report.connection_references = [
+        ConnectionReferenceFinding("servidor", 3050, "LOJA01", "C:/SIAF/siaf.ini")
+    ]
+    report.network_connections = [NetworkFinding(10, "10.0.0.2", 50000, "10.0.0.10", 4050)]
+    report.detected_ports = [3050, 4050]
+    repository.record_discovery("CAIXA", report)
+
+    plan = FirebirdConnectionService(repository, machine_name="CAIXA").build_plan(report)
+
+    assert any(
+        target.dsn == "10.0.0.10/4050:LOJA01" and target.source == "configuracao_siaf_tcp"
+        for target in plan.targets
+    )

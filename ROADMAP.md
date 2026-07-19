@@ -732,7 +732,9 @@ Mostrar:
 | Terminal sem conexão ativa | Abra o SIAF e execute novamente a análise do ambiente |
 | Várias bases candidatas | Foram encontradas várias lojas; selecione a base correta |
 | Caminho inexistente | O Firebird não encontrou a base no caminho detectado |
-| SQLCODE -902 / I/O CreateFile | O caminho detectado não é válido para o serviço Firebird |
+| SQLCODE -902 com I/O CreateFile | O caminho detectado não é válido para o serviço Firebird |
+| SQLCODE -902 com falha de rede | Não foi possível alcançar automaticamente o serviço Firebird |
+| SQLCODE -902 sem causa reconhecida | Não foi possível validar a conexão Firebird |
 | Porta indisponível | Não foi possível alcançar automaticamente o serviço Firebird |
 | Login inválido | Informe a credencial autorizada do suporte |
 | DLL não encontrada | O cliente Firebird x86 não foi localizado |
@@ -1189,10 +1191,13 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 > e remotas a partir de evidências do SIAF, valida cada base em modo somente leitura fora da
 > thread da interface e persiste somente metadados técnicos. O fallback avançado, a tradução
 > de falhas e a exportação de diagnóstico sem credenciais também estão disponíveis. A suíte
-> possui 100 testes, 85% de cobertura combinada e build PyInstaller x86 aprovado em smoke.
+> possui 107 testes, 85% de cobertura combinada e build PyInstaller x86 aprovado em smoke.
 > A estabilização passou a bloquear versões diferentes de Firebird 2.5.7/ODS 11.2, detectar
 > portas remotas `3050–3099` observadas pelo SIAF, preservar a porta de cada instância e impedir
 > troca silenciosa da DLL cliente durante a sessão.
+> A revisão de 2026-07-19 também passou a ler configurações UTF-8, UTF-16 e CP1252, mascarar
+> caminhos embutidos no diagnóstico, distinguir erros de rede `-902` e apresentar portas TCP
+> arbitrárias como candidatas assistidas ou correlacioná-las com referências do SIAF.
 > Permanecem pendentes a autenticação pela nova tela em uma base real e a homologação em um
 > terminal conectado a servidor remoto. Consulte `docs/phase-4-status.md`.
 

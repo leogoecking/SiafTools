@@ -136,3 +136,15 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
   com 85% de cobertura combinada.
 - Executável x86 reconstruído e aprovado em inicialização, descoberta e fechamento normal,
   mantendo `errors.log` vazio.
+- Configurações do SIAF e Firebird passam a reconhecer UTF-8 com ou sem BOM, UTF-16 e CP1252,
+  preservando aliases e caminhos com acentos.
+- O diagnóstico mascara caminhos mesmo quando aparecem dentro de DSNs, mensagens, comandos,
+  valores do Registro, variáveis de ambiente ou compartilhamentos UNC.
+- `SQLCODE -902` deixa de ser tratado genericamente como caminho inválido: indicadores de rede
+  têm prioridade, `CreateFile` continua associado ao caminho e casos ambíguos usam orientação
+  neutra.
+- Portas TCP arbitrárias observadas no processo SIAF são correlacionadas com referências de
+  conexão quando possível; as demais aparecem na interface como candidatas assistidas sem
+  serem promovidas indevidamente a Firebird confirmado.
+- Sete regressões adicionais ampliam a suíte para 107 testes, mantendo 85% de cobertura
+  combinada.

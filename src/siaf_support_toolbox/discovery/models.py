@@ -130,6 +130,7 @@ class DiscoveryReport:
     firebird_configurations: list[FirebirdConfigurationFinding] = field(default_factory=list)
     connection_references: list[ConnectionReferenceFinding] = field(default_factory=list)
     detected_ports: list[int] = field(default_factory=lambda: [3050])
+    network_candidate_ports: list[int] = field(default_factory=list)
     mode: MachineMode = MachineMode.ASSISTED
     confidence: int = 0
     evidence: list[Evidence] = field(default_factory=list)

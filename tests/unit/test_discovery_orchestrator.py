@@ -6,6 +6,7 @@ from siaf_support_toolbox.discovery.models import (
     AliasFinding,
     Architecture,
     ClientLibraryFinding,
+    ConnectionReferenceFinding,
     DatabaseCandidate,
     FirebirdConfigurationFinding,
     MachineMode,
@@ -152,3 +153,51 @@ def test_orchestrator_uses_nonstandard_firebird_port_observed_from_siaf(monkeypa
     assert 3055 in report.detected_ports
     assert report.mode == MachineMode.TERMINAL
     assert report.confidence >= 45
+
+
+def test_orchestrator_correlates_arbitrary_port_with_siaf_reference(monkeypatch):
+    patch_base_detectors(monkeypatch)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "detect_siaf_processes",
+        lambda: ([ProcessFinding(10, "SIAFW.EXE", "C:/SIAF/SIAFW.EXE")], []),
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "detect_siaf_connection_references",
+        lambda _roots: (
+            [ConnectionReferenceFinding("servidor", 3050, "LOJA01", "C:/SIAF/siaf.ini")],
+            [],
+        ),
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "detect_process_connections",
+        lambda _pids: ([NetworkFinding(10, "10.0.0.2", 50000, "10.0.0.10", 4050)], []),
+    )
+
+    report = DiscoveryOrchestrator().discover()
+
+    assert 4050 in report.detected_ports
+    assert report.network_candidate_ports == []
+    assert report.mode == MachineMode.TERMINAL
+
+
+def test_orchestrator_exposes_uncorrelated_remote_port_as_assisted_candidate(monkeypatch):
+    patch_base_detectors(monkeypatch)
+    monkeypatch.setattr(
+        orchestrator_module,
+        "detect_siaf_processes",
+        lambda: ([ProcessFinding(10, "SIAFW.EXE", "C:/SIAF/SIAFW.EXE")], []),
+    )
+    monkeypatch.setattr(
+        orchestrator_module,
+        "detect_process_connections",
+        lambda _pids: ([NetworkFinding(10, "10.0.0.2", 50000, "10.0.0.10", 4050)], []),
+    )
+
+    report = DiscoveryOrchestrator().discover()
+
+    assert report.detected_ports == [3050]
+    assert report.network_candidate_ports == [4050]
+    assert report.mode == MachineMode.ASSISTED
