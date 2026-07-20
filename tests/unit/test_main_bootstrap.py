@@ -6,6 +6,7 @@ from siaf_support_toolbox import main as main_module
 from siaf_support_toolbox.services.environment_discovery_service import (
     PersistentDiscoveryService,
 )
+from siaf_support_toolbox.services.schema_inspection_service import SchemaInspectionService
 
 
 def test_main_creates_internal_database_before_opening_window(monkeypatch, tmp_path):
@@ -26,6 +27,7 @@ def test_main_creates_internal_database_before_opening_window(monkeypatch, tmp_p
 
     assert (tmp_path / "data" / "siaf-support-toolbox.sqlite3").is_file()
     assert isinstance(captured["orchestrator"], PersistentDiscoveryService)
+    assert isinstance(captured["schema_inspector"], SchemaInspectionService)
     assert captured["paths"].root == tmp_path
     assert captured["mainloop"] is True
 

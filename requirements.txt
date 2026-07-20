@@ -1,3 +1,4 @@
 fdb>=2.0.2,<3
 # 5.9.8 é a última linha homologada aqui com wheel ABI3 oficial para Windows x86.
 psutil==5.9.8
+openpyxl==3.1.5

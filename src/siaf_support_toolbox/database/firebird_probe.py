@@ -71,7 +71,7 @@ def probe_read_only(
     connection = None
     cursor = None
     try:
-        loaded_library = _load_api_library(fdb, library_path)
+        loaded_library = load_api_library(fdb, library_path)
         if loaded_library is not None:
             return FirebirdProbeResult(
                 False,
@@ -153,7 +153,9 @@ def probe_read_only(
             ods_version=ods_version,
         )
     except Exception as exc:
-        return FirebirdProbeResult(False, None, None, "connection_failed", _translate_error(exc))
+        return FirebirdProbeResult(
+            False, None, None, "connection_failed", translate_connection_error(exc)
+        )
     finally:
         if cursor is not None:
             with suppress(Exception):
@@ -163,7 +165,7 @@ def probe_read_only(
                 connection.close()
 
 
-def _translate_error(error: Exception) -> str:
+def translate_connection_error(error: Exception) -> str:
     message = str(error)
     lowered = message.casefold()
     if "winerror 193" in lowered:
@@ -219,7 +221,7 @@ def runtime_compatibility_issue(
     return None
 
 
-def _load_api_library(fdb_module: object, requested_path: Path) -> str | None:
+def load_api_library(fdb_module: object, requested_path: Path) -> str | None:
     with _API_LOAD_LOCK:
         api = fdb_module.load_api(str(requested_path))  # type: ignore[attr-defined]
     loaded_path = getattr(api, "client_library_name", None)
@@ -234,3 +236,8 @@ def _same_library(requested_path: Path, loaded_path: str) -> bool:
     if loaded.is_absolute():
         return requested == os.path.normcase(str(loaded.resolve(strict=False)))
     return os.path.normcase(requested_path.name) == os.path.normcase(loaded.name)
+
+
+# Compatibilidade interna para diagnósticos e testes das fases anteriores.
+_translate_error = translate_connection_error
+_load_api_library = load_api_library

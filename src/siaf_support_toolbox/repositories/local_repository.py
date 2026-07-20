@@ -14,7 +14,9 @@ from siaf_support_toolbox.repositories.models import (
     KnowledgeEntry,
     ManualConnectionProfile,
     QueryTemplate,
+    SchemaCacheState,
     SchemaField,
+    SchemaObject,
 )
 
 
@@ -245,6 +247,7 @@ class LocalRepository:
                 """,
                 (_text(schema_signature), compatibility_status, int(selected), now, database_id),
             )
+            self._delete_schema_snapshot(connection, database_id)
             connection.execute(
                 "UPDATE detected_environments SET last_success = ? WHERE id = ?",
                 (now, row["environment_id"]),
@@ -421,7 +424,7 @@ class LocalRepository:
         values = (
             _text(template.module),
             _text(template.description),
-            _text(template.sql_template),
+            _template_sql(template.sql_template),
             _json(template.required_tables),
             _json(template.required_fields),
             _json(template.parameters_schema),
@@ -429,6 +432,7 @@ class LocalRepository:
             _text(template.risk_level),
             int(template.enabled),
             _optional_text(template.source_reference),
+            template.result_limit,
         )
         with self.database.connect() as connection, connection:
             existing = connection.execute(
@@ -440,7 +444,8 @@ class LocalRepository:
                     """
                     UPDATE query_templates SET module = ?, description = ?, sql_template = ?,
                         required_tables = ?, required_fields = ?, parameters_schema = ?,
-                        read_only = ?, risk_level = ?, enabled = ?, source_reference = ?
+                        read_only = ?, risk_level = ?, enabled = ?, source_reference = ?,
+                        result_limit = ?
                     WHERE id = ?
                     """,
                     (*values, existing["id"]),
@@ -450,12 +455,42 @@ class LocalRepository:
                 """
                 INSERT INTO query_templates (
                     name, module, description, sql_template, required_tables, required_fields,
-                    parameters_schema, read_only, risk_level, enabled, version, source_reference
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    parameters_schema, read_only, risk_level, enabled, version, source_reference,
+                    result_limit
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (_text(template.name), *values[:-1], _text(template.version), values[-1]),
+                (_text(template.name), *values[:-2], _text(template.version), *values[-2:]),
             )
             return int(cursor.lastrowid)
+
+    def list_query_templates(self, *, enabled_only: bool = True) -> list[QueryTemplate]:
+        where = "WHERE enabled = 1" if enabled_only else ""
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, name, module, description, sql_template, required_tables,
+                    required_fields, parameters_schema, read_only, risk_level, enabled,
+                    version, source_reference, result_limit
+                FROM query_templates
+                {where}
+                ORDER BY module, name, version
+                """
+            ).fetchall()
+        return [_query_template_from_row(row) for row in rows]
+
+    def query_template(self, template_id: int) -> QueryTemplate | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, name, module, description, sql_template, required_tables,
+                    required_fields, parameters_schema, read_only, risk_level, enabled,
+                    version, source_reference, result_limit
+                FROM query_templates
+                WHERE id = ?
+                """,
+                (template_id,),
+            ).fetchone()
+        return _query_template_from_row(row) if row is not None else None
 
     def add_execution_history(self, record: ExecutionRecord) -> int:
         with self.database.connect() as connection, connection:
@@ -463,9 +498,9 @@ class LocalRepository:
                 """
                 INSERT INTO execution_history (
                     environment_id, database_id, action_name, action_type, started_at,
-                    finished_at, success, records_processed, duration_ms, error_code,
-                    error_message, output_file, app_version, windows_user
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    finished_at, success, records_processed, truncated, duration_ms,
+                    error_code, error_message, output_file, app_version, windows_user
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.environment_id,
@@ -476,6 +511,7 @@ class LocalRepository:
                     _optional_text(record.finished_at),
                     int(record.success),
                     record.records_processed,
+                    int(record.truncated),
                     record.duration_ms,
                     _optional_text(record.error_code),
                     _optional_text(record.error_message),
@@ -489,29 +525,213 @@ class LocalRepository:
     def replace_schema_cache(self, database_id: int, fields: list[SchemaField]) -> None:
         with self.database.connect() as connection, connection:
             connection.execute("DELETE FROM schema_cache WHERE database_id = ?", (database_id,))
+            connection.execute(
+                "DELETE FROM schema_snapshots WHERE database_id = ?", (database_id,)
+            )
+            self._insert_schema_fields(connection, database_id, fields)
+
+    def replace_schema_snapshot(
+        self,
+        database_id: int,
+        fields: list[SchemaField],
+        objects: list[SchemaObject],
+        *,
+        server_version: str,
+        ods_version: str,
+        checked_at: str,
+    ) -> None:
+        with self.database.connect() as connection, connection:
+            database_row = connection.execute(
+                """
+                SELECT schema_signature, compatibility_status
+                FROM discovered_databases WHERE id = ?
+                """,
+                (database_id,),
+            ).fetchone()
+            if database_row is None:
+                raise LookupError(f"Base interna inexistente: {database_id}")
+            signature = database_row["schema_signature"]
+            if database_row["compatibility_status"] != "compatible" or not signature:
+                raise ValueError("A base precisa estar validada antes de armazenar o catálogo")
+            self._delete_schema_snapshot(connection, database_id)
+            self._insert_schema_fields(connection, database_id, fields)
             connection.executemany(
                 """
-                INSERT INTO schema_cache (
-                    database_id, relation_name, field_name, field_type, field_length,
-                    field_scale, nullable, primary_key, index_names, checked_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO schema_object_cache (
+                    database_id, object_type, object_name, relation_name,
+                    details_json, checked_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [
                     (
                         database_id,
-                        _text(field.relation_name),
-                        _text(field.field_name),
-                        _text(field.field_type),
-                        field.field_length,
-                        field.field_scale,
-                        int(field.nullable),
-                        int(field.primary_key),
-                        _json(field.index_names),
-                        _text(field.checked_at) if field.checked_at else _utc_now(),
+                        _schema_object_type(item.object_type),
+                        _text(item.object_name),
+                        _optional_text(item.relation_name),
+                        _json(item.details),
+                        _text(item.checked_at) if item.checked_at else _utc_now(),
                     )
-                    for field in fields
+                    for item in objects
                 ],
             )
+            connection.execute(
+                """
+                INSERT INTO schema_snapshots (
+                    database_id, schema_signature, server_version, ods_version,
+                    field_count, object_count, checked_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    database_id,
+                    _text(signature),
+                    _text(server_version),
+                    _text(ods_version),
+                    len(fields),
+                    len(objects),
+                    _text(checked_at),
+                ),
+            )
+
+    @staticmethod
+    def _insert_schema_fields(
+        connection: sqlite3.Connection,
+        database_id: int,
+        fields: list[SchemaField],
+    ) -> None:
+        connection.executemany(
+            """
+            INSERT INTO schema_cache (
+                database_id, relation_name, field_name, field_type, field_length,
+                field_scale, field_precision, character_length, character_set_name,
+                collation_name, nullable, primary_key, index_names, checked_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    database_id,
+                    _text(field.relation_name),
+                    _text(field.field_name),
+                    _text(field.field_type),
+                    field.field_length,
+                    field.field_scale,
+                    field.field_precision,
+                    field.character_length,
+                    _optional_text(field.character_set_name),
+                    _optional_text(field.collation_name),
+                    int(field.nullable),
+                    int(field.primary_key),
+                    _json(field.index_names),
+                    _text(field.checked_at) if field.checked_at else _utc_now(),
+                )
+                for field in fields
+            ],
+        )
+
+    @staticmethod
+    def _delete_schema_snapshot(connection: sqlite3.Connection, database_id: int) -> None:
+        connection.execute("DELETE FROM schema_snapshots WHERE database_id = ?", (database_id,))
+        connection.execute("DELETE FROM schema_cache WHERE database_id = ?", (database_id,))
+        connection.execute(
+            "DELETE FROM schema_object_cache WHERE database_id = ?", (database_id,)
+        )
+
+    def invalidate_schema_snapshot(self, database_id: int) -> None:
+        with self.database.connect() as connection, connection:
+            self._delete_schema_snapshot(connection, database_id)
+
+    def schema_cache_state(self, database_id: int) -> SchemaCacheState:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT S.*, D.schema_signature AS current_signature,
+                    D.compatibility_status,
+                    (SELECT COUNT(*) FROM schema_cache F
+                     WHERE F.database_id = S.database_id) AS actual_field_count,
+                    (SELECT COUNT(*) FROM schema_object_cache O
+                     WHERE O.database_id = S.database_id) AS actual_object_count
+                FROM schema_snapshots S
+                JOIN discovered_databases D ON D.id = S.database_id
+                WHERE S.database_id = ?
+                """,
+                (database_id,),
+            ).fetchone()
+        if row is None:
+            return SchemaCacheState(database_id, False, "Estrutura ainda não inspecionada")
+        if row["compatibility_status"] != "compatible":
+            return SchemaCacheState(database_id, False, "A base não está validada como compatível")
+        if row["schema_signature"] != row["current_signature"]:
+            return SchemaCacheState(database_id, False, "O cache pertence a outra validação")
+        if (
+            row["field_count"] != row["actual_field_count"]
+            or row["object_count"] != row["actual_object_count"]
+        ):
+            return SchemaCacheState(database_id, False, "O cache estrutural está incompleto")
+        if row["field_count"] <= 0 or row["object_count"] <= 0:
+            return SchemaCacheState(database_id, False, "O cache estrutural está vazio")
+        return SchemaCacheState(
+            database_id,
+            True,
+            checked_at=row["checked_at"],
+            schema_signature=row["schema_signature"],
+            server_version=row["server_version"],
+            ods_version=row["ods_version"],
+            field_count=row["field_count"],
+            object_count=row["object_count"],
+        )
+
+    def load_schema_cache(
+        self, database_id: int
+    ) -> tuple[list[SchemaField], list[SchemaObject]]:
+        with self.database.connect() as connection:
+            field_rows = connection.execute(
+                """
+                SELECT relation_name, field_name, field_type, field_length, field_scale,
+                    field_precision, character_length, character_set_name, collation_name,
+                    nullable, primary_key, index_names, checked_at
+                FROM schema_cache
+                WHERE database_id = ?
+                ORDER BY relation_name, field_name
+                """,
+                (database_id,),
+            ).fetchall()
+            object_rows = connection.execute(
+                """
+                SELECT object_type, object_name, relation_name, details_json, checked_at
+                FROM schema_object_cache
+                WHERE database_id = ?
+                ORDER BY object_type, object_name
+                """,
+                (database_id,),
+            ).fetchall()
+        fields = [
+            SchemaField(
+                relation_name=row["relation_name"],
+                field_name=row["field_name"],
+                field_type=row["field_type"],
+                nullable=bool(row["nullable"]),
+                field_length=row["field_length"],
+                field_scale=row["field_scale"],
+                field_precision=row["field_precision"],
+                character_length=row["character_length"],
+                character_set_name=row["character_set_name"],
+                collation_name=row["collation_name"],
+                primary_key=bool(row["primary_key"]),
+                index_names=tuple(json.loads(row["index_names"])),
+                checked_at=row["checked_at"],
+            )
+            for row in field_rows
+        ]
+        objects = [
+            SchemaObject(
+                object_type=row["object_type"],
+                object_name=row["object_name"],
+                relation_name=row["relation_name"],
+                details=json.loads(row["details_json"]),
+                checked_at=row["checked_at"],
+            )
+            for row in object_rows
+        ]
+        return fields, objects
 
     def upsert_knowledge_entry(self, entry: KnowledgeEntry) -> int:
         values = (
@@ -649,3 +869,37 @@ def _text(value: str) -> str:
 
 def _optional_text(value: str | None) -> str | None:
     return _text(value) if value is not None else None
+
+
+def _template_sql(value: str) -> str:
+    if "\x00" in value:
+        raise ValueError("O template SQL contém um caractere inválido")
+    return value
+
+
+def _query_template_from_row(row: sqlite3.Row) -> QueryTemplate:
+    required_fields = json.loads(row["required_fields"])
+    return QueryTemplate(
+        name=row["name"],
+        module=row["module"],
+        description=row["description"],
+        sql_template=row["sql_template"],
+        required_tables=tuple(json.loads(row["required_tables"])),
+        required_fields={key: tuple(value) for key, value in required_fields.items()},
+        parameters_schema=json.loads(row["parameters_schema"]),
+        risk_level=row["risk_level"],
+        version=row["version"],
+        read_only=bool(row["read_only"]),
+        enabled=bool(row["enabled"]),
+        source_reference=row["source_reference"],
+        result_limit=row["result_limit"],
+        id=int(row["id"]),
+    )
+
+
+def _schema_object_type(value: str) -> str:
+    normalized = value.strip().casefold()
+    allowed = {"relation", "index", "trigger", "procedure", "generator"}
+    if normalized not in allowed:
+        raise ValueError(f"Tipo de objeto de esquema inválido: {value}")
+    return normalized

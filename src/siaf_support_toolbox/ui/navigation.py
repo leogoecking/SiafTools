@@ -19,7 +19,12 @@ NAVIGATION_ITEMS = (
         "Ambiente detectado",
         "Descoberta automática do SIAF, Firebird e bases candidatas.",
     ),
-    NavigationItem("queries", "Consultas", "Consultas", "Disponível em uma fase futura."),
+    NavigationItem(
+        "queries",
+        "Consultas",
+        "Consultas",
+        "Templates validados em modo somente leitura, com paginação e cancelamento.",
+    ),
     NavigationItem(
         "diagnostics",
         "Diagnósticos",

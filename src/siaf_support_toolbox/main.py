@@ -12,6 +12,8 @@ from siaf_support_toolbox.services.diagnostic_export_service import DiagnosticEx
 from siaf_support_toolbox.services.environment_discovery_service import (
     PersistentDiscoveryService,
 )
+from siaf_support_toolbox.services.query_execution_service import QueryExecutionService
+from siaf_support_toolbox.services.schema_inspection_service import SchemaInspectionService
 from siaf_support_toolbox.ui.main_window import MainWindow
 from siaf_support_toolbox.ui.startup_error import show_database_startup_error
 
@@ -32,11 +34,17 @@ def main() -> None:
     repository = LocalRepository(database)
     discovery_service = PersistentDiscoveryService(repository)
     connection_service = FirebirdConnectionService(repository)
+    schema_inspector = SchemaInspectionService(repository)
+    query_service = QueryExecutionService(
+        repository, schema_inspector, paths.data / "query-cache", paths.exports
+    )
     diagnostic_exporter = DiagnosticExportService(paths.exports)
     MainWindow(
         paths=paths,
         orchestrator=discovery_service,
         connection_service=connection_service,
+        schema_inspector=schema_inspector,
+        query_service=query_service,
         diagnostic_exporter=diagnostic_exporter,
     ).mainloop()
 

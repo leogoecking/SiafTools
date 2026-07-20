@@ -16,6 +16,7 @@ class EnvironmentPage(ttk.Frame):
         on_validate: Callable[[], None] | None = None,
         on_export: Callable[[], None] | None = None,
         on_manual: Callable[[], None] | None = None,
+        on_inspect: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent, padding=24, style="Surface.TFrame")
 
@@ -37,6 +38,10 @@ class EnvironmentPage(ttk.Frame):
             actions, text="Validar conexão", command=on_validate, state="disabled"
         )
         self.validate_button.pack(side="left", padx=2)
+        self.inspect_button = ttk.Button(
+            actions, text="Inspecionar estrutura", command=on_inspect, state="disabled"
+        )
+        self.inspect_button.pack(side="left", padx=2)
         self.export_button = ttk.Button(
             actions, text="Exportar diagnóstico", command=on_export, state="disabled"
         )
@@ -62,8 +67,11 @@ class EnvironmentPage(ttk.Frame):
     def set_busy(self, busy: bool) -> None:
         self.scan_button.state(["disabled"] if busy else ["!disabled"])
 
-    def set_actions(self, *, validate: bool, export: bool, manual: bool) -> None:
+    def set_actions(
+        self, *, validate: bool, export: bool, manual: bool, inspect: bool = False
+    ) -> None:
         self.validate_button.state(["!disabled"] if validate else ["disabled"])
+        self.inspect_button.state(["!disabled"] if inspect else ["disabled"])
         self.export_button.state(["!disabled"] if export else ["disabled"])
         self.manual_button.state(["!disabled"] if manual else ["disabled"])
 

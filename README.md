@@ -3,8 +3,8 @@
 Aplicação desktop Windows para descobrir com segurança um ambiente SIAF/Firebird e, após
 validação, oferecer consultas de suporte em modo somente leitura.
 
-As **Fases 0, 1, 2 e 3 estão concluídas** e a **Fase 4 está em homologação**. A entrega atual
-cobre a fundação do repositório, a interface desktop, o SQLite interno e a descoberta
+As **Fases 0 a 8 estão concluídas e a Fase 9 está em homologação**. A entrega atual
+cobre a fundação do repositório, a interface desktop, o SQLite interno, a descoberta
 automática: arquitetura do processo, processos/serviços, Registro do Windows, configurações
 próximas ao SIAF, bibliotecas cliente Firebird, conexões TCP e candidatos limitados a
 `SIAFW.FDB` e `SIAFLOJA.FDB`.
@@ -16,6 +16,14 @@ um fallback para ambientes que não puderam ser resolvidos automaticamente; se o
 estiver carregada, o aplicativo solicita uma reinicialização em vez de ignorar silenciosamente
 a biblioteca selecionada. O diagnóstico técnico pode ser exportado pela mesma página com
 caminhos mascarados e sem credenciais.
+
+Depois de validar uma ou mais bases, o botão **Inspecionar estrutura** solicita a credencial
+somente para a sessão atual e lê relações, campos, índices, chaves primárias, triggers,
+procedures e generators. Cada base usa uma conexão Firebird própria, transação read-only e
+leitura em lotes. O resultado fica em cache no SQLite e serve para bloquear templates cujos
+requisitos de tabelas ou campos não estejam presentes. O cache possui um snapshot completo
+vinculado à validação atual; uma nova validação o invalida e exige nova inspeção antes de
+autorizar consultas.
 
 Configurações do SIAF e do Firebird são lidas em UTF-8, UTF-16 ou CP1252 para preservar
 caminhos acentuados de instalações antigas. Portas TCP observadas fora da faixa convencional
@@ -32,9 +40,26 @@ bases descobertas, perfis manuais de contingência, histórico, templates, cache
 base de conhecimento. Ele não possui campo de senha; credenciais continuam restritas à sessão.
 
 A interface possui menu lateral com as áreas previstas no roadmap, temas claro e escuro e
-persistência de tamanho, posição, estado e última página. A validação de conexão roda fora da
-thread da interface e cada worker abre sua própria conexão Firebird somente leitura. Consultas
-funcionais e operações de escrita ainda não fazem parte da entrega.
+persistência de tamanho, posição, estado e última página. Validação e inspeção rodam fora da
+thread da interface e cada worker abre sua própria conexão Firebird somente leitura. A página
+**Consultas** executa somente templates validados, com parâmetros vinculados, `fetchmany`,
+cancelamento cooperativo e paginação em cache temporário. A Fase 7 acrescenta buscas validadas
+de produtos, clientes e fornecedores, painel de detalhes e exportação progressiva CSV/XLSX em
+worker; datas e decimais preservam seus tipos no XLSX e prefixos de fórmula, inclusive caracteres
+de controle e variantes Unicode, são neutralizados. Operações de escrita continuam fora da
+entrega e bloqueadas pelo modo padrão.
+
+A Fase 8 acrescenta consultas somente leitura de NF-e de saída, entradas de fornecedor e
+PDV/NFC-e. Cabeçalhos, itens e pagamentos usam os relacionamentos comprovados no snapshot real,
+exigem ao menos um filtro e exibem códigos de status exatamente como armazenados, sem inferir
+significados fiscais ou operacionais. Datas são informadas e exibidas como `DD/MM/AAAA`.
+Quando existem mais de 500 linhas, a consulta e o nome da exportação avisam explicitamente que
+o resultado é parcial e solicitam filtros mais específicos.
+
+A Fase 9 acrescenta consultas somente leitura de contas a receber, contas a pagar, caixa diário,
+transferências, tipos de venda/pagamento e diagnóstico de permissões por usuário, grupo e
+programa. Os templates financeiros exigem a `SIAFLOJA.FDB`; usuários e permissões exigem a
+`SIAFW.FDB`. O campo `DSIAF050.USU_SENHA` é deliberadamente excluído das consultas e exportações.
 
 ## Requisito de arquitetura
 
@@ -97,8 +122,8 @@ mantém a janela aberta e grava o resultado sem credenciais na pasta `exports`.
 powershell -ExecutionPolicy Bypass -File scripts\build.ps1
 ```
 
-O build inicial é `onedir` e `windowed`. A homologação ainda exige testes em Windows 10 e 11,
-máquina sem Python, Firebird 2.5.7 x86, servidor local e terminal remoto.
+O build é `onedir` e `windowed`. Validações em terminal remoto e bases reais são realizadas
+como homologação de campo, diretamente no computador do cliente.
 
 O primeiro artefato local é criado em:
 

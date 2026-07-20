@@ -1187,19 +1187,22 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 ### Fase 4 — Descoberta automática e conexão Firebird
 
-> **Em homologação desde 2026-07-18.** A descoberta automática agora prepara conexões locais
+> **Concluída tecnicamente em 2026-07-19.** A descoberta automática prepara conexões locais
 > e remotas a partir de evidências do SIAF, valida cada base em modo somente leitura fora da
 > thread da interface e persiste somente metadados técnicos. O fallback avançado, a tradução
 > de falhas e a exportação de diagnóstico sem credenciais também estão disponíveis. A suíte
-> possui 107 testes, 85% de cobertura combinada e build PyInstaller x86 aprovado em smoke.
+> possuía 107 testes, 85% de cobertura combinada e build PyInstaller x86 aprovado em smoke no
+> encerramento da fase.
 > A estabilização passou a bloquear versões diferentes de Firebird 2.5.7/ODS 11.2, detectar
 > portas remotas `3050–3099` observadas pelo SIAF, preservar a porta de cada instância e impedir
 > troca silenciosa da DLL cliente durante a sessão.
 > A revisão de 2026-07-19 também passou a ler configurações UTF-8, UTF-16 e CP1252, mascarar
 > caminhos embutidos no diagnóstico, distinguir erros de rede `-902` e apresentar portas TCP
 > arbitrárias como candidatas assistidas ou correlacioná-las com referências do SIAF.
-> Permanecem pendentes a autenticação pela nova tela em uma base real e a homologação em um
-> terminal conectado a servidor remoto. Consulte `docs/phase-4-status.md`.
+> A validação em terminal conectado a servidor remoto permanece como homologação de campo,
+> pois o suporte será executado diretamente no computador do cliente e não há acesso remoto
+> prévio às bases. Essa prova operacional não bloqueia as próximas fases. Consulte
+> `docs/phase-4-status.md`.
 
 **Entregas:**
 
@@ -1232,6 +1235,19 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 ### Fase 5 — Inspetor de estrutura
 
+> **Concluída em 2026-07-19.** O inspetor lê relações, campos, índices, chaves
+> primárias, triggers, procedures e generators em transação somente leitura, sempre por uma
+> conexão própria do worker e com `fetchmany(200)`. O catálogo é armazenado no SQLite pela
+> migration 4, pode ser comparado entre bases e fornece a barreira que impede uma consulta de
+> prosseguir quando tabelas ou campos obrigatórios não existem. A interface inspeciona todas
+> as bases validadas na sessão sem persistir credenciais. A estabilização passou a invalidar
+> snapshots após cada revalidação, falhar fechado com cache ausente/incompleto, reconhecer
+> precisão, charset e collation, índices por expressão e assinaturas de views, triggers,
+> procedures e parâmetros. A homologação real inspecionou `SIAFLOJA.FDB` e `SIAFW.FDB` em
+> Firebird 2.5.7/ODS 11.2, armazenando dois snapshots completos e 6.144 campos. A suíte da
+> entrega possui 122 testes e build PyInstaller x86 aprovado em smoke. Consulte
+> `docs/phase-5-status.md`.
+
 **Entregas:**
 
 - Ler relações, campos, índices, PKs, triggers, procedures e generators.
@@ -1241,8 +1257,21 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 **Critérios de aceite:**
 
 - Consulta só executa quando requisitos existem.
+- Cache de catálogo só é substituído após uma inspeção bem-sucedida.
+- Inspeção real conclui sem congelar a interface e persiste snapshots completos das bases.
 
 ### Fase 6 — Motor de consulta somente leitura
+
+> **Concluída em 2026-07-19.** O motor aceita apenas templates persistidos e marcados
+> como read-only, valida uma única instrução `SELECT`/`WITH`, bloqueia comandos destrutivos,
+> confere os requisitos contra o snapshot da Fase 5 e executa em conexão própria do worker.
+> Resultados são lidos com `fetchmany(200)`, gravados em cache SQLite temporário, exibidos em
+> páginas de 100 registros e descartados ao fechar a aplicação. O cancelamento é cooperativo
+> entre lotes. Os dois templates foram executados com sucesso no ambiente real do cliente e
+> retornaram dados. A estabilização posterior passou a comparar as relações extraídas do SQL
+> com os requisitos declarados, bloquear procedures selecionáveis, preservar o SQL original na
+> persistência, limpar resultados visuais obsoletos e apagar credenciais em qualquer saída do
+> serviço. Consulte `docs/phase-6-status.md`.
 
 **Entregas:**
 
@@ -1260,6 +1289,16 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 ### Fase 7 — Produtos, clientes e fornecedores
 
+> **Concluída em 2026-07-19.** Foram adicionadas consultas rápidas de produtos
+> (`DSIAF006`, com vínculo de fornecedor validado em `DSIAF030`), clientes (`DSIAF010`) e
+> fornecedores (`DSIAF009`) a partir do snapshot real da `SIAFLOJA.FDB`. Todos os campos são
+> conferidos no cache estrutural antes da conexão. A página exibe os campos do registro
+> selecionado e exporta o resultado local em CSV ou XLSX por lotes, fora da thread do Tk e sem
+> arquivo parcial em cancelamentos. A homologação no computador do cliente confirmou as buscas,
+> os detalhes e as exportações. A revisão pós-fase preservou datas e decimais no XLSX, ampliou
+> a proteção contra fórmulas, invalidou caminhos antigos no rodapé e bloqueou exportações de
+> cancelamentos sem colunas. Consulte `docs/phase-7-status.md`.
+
 **Entregas:**
 
 - Consultas rápidas.
@@ -1272,6 +1311,15 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 - Busca por código/nome/documento funciona.
 
 ### Fase 8 — NF-e, entrada e PDV
+
+> **Concluída em 2026-07-19.** O snapshot real da `SIAFLOJA.FDB` confirmou os
+> cabeçalhos e vínculos por `SAI_SER + SAI_PED`, `ENT_NOTA + FOR_COD` e `ID + PDV_COD`.
+> Foram adicionados sete templates somente leitura para cabeçalhos, itens e pagamentos, com
+> busca por número, chave, período, cliente, fornecedor, produto, terminal e indicadores
+> armazenados. A homologação real confirmou o retorno dos templates. A revisão final adotou
+> datas `DD/MM/AAAA`, rejeitou períodos invertidos, corrigiu o período de pagamentos, tornou
+> explícito o corte em 500 linhas e ordenou o PDV pelas chaves existentes sem alterar o banco
+> do cliente ou limitar a duração do período. Consulte `docs/phase-8-status.md`.
 
 **Entregas:**
 
@@ -1286,6 +1334,17 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 - Resultados batem com amostras conferidas no SIAF.
 
 ### Fase 9 — Financeiro e permissões
+
+> **Em homologação desde 2026-07-19.** O snapshot real confirmou as relações financeiras na
+> `SIAFLOJA.FDB` e usuários/permissões na `SIAFW.FDB`. Foram adicionados dez templates somente
+> leitura para títulos, caixa, transferências, tipos de venda/pagamento, usuários, grupos,
+> programas e permissões. Os códigos são exibidos como armazenados e `USU_SENHA` não é
+> selecionado. A revisão pós-implementação eliminou a multiplicação de permissões por todos os
+> usuários do grupo, preservou `DSIAF016.PRA_COD` sem interpretação funcional, passou a auditar
+> resultados truncados e normalizou espaços nos filtros. Após a prova por grupo, o diagnóstico
+> de permissões passou a retornar o conjunto completo, ainda com filtro obrigatório e leitura
+> progressiva. A conclusão depende da conferência de casos reais no SIAF. Consulte
+> `docs/phase-9-status.md`.
 
 **Entregas:**
 

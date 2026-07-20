@@ -33,6 +33,8 @@ class QueryTemplate:
     read_only: bool = True
     enabled: bool = True
     source_reference: str | None = None
+    result_limit: int | None = None
+    id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +48,7 @@ class ExecutionRecord:
     database_id: int | None = None
     finished_at: str | None = None
     records_processed: int = 0
+    truncated: bool = False
     duration_ms: int | None = None
     error_code: str | None = None
     error_message: str | None = None
@@ -61,9 +64,35 @@ class SchemaField:
     nullable: bool
     field_length: int | None = None
     field_scale: int | None = None
+    field_precision: int | None = None
+    character_length: int | None = None
+    character_set_name: str | None = None
+    collation_name: str | None = None
     primary_key: bool = False
     index_names: tuple[str, ...] = ()
     checked_at: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SchemaObject:
+    object_type: str
+    object_name: str
+    details: dict[str, object]
+    relation_name: str | None = None
+    checked_at: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class SchemaCacheState:
+    database_id: int
+    ready: bool
+    reason: str | None = None
+    checked_at: str | None = None
+    schema_signature: str | None = None
+    server_version: str | None = None
+    ods_version: str | None = None
+    field_count: int = 0
+    object_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

@@ -25,6 +25,7 @@ from siaf_support_toolbox.repositories.models import (
     ManualConnectionProfile,
     QueryTemplate,
     SchemaField,
+    SchemaObject,
 )
 
 EXPECTED_TABLES = {
@@ -36,7 +37,9 @@ EXPECTED_TABLES = {
     "operation_audit",
     "query_templates",
     "schema_cache",
+    "schema_object_cache",
     "schema_migrations",
+    "schema_snapshots",
 }
 
 
@@ -82,6 +85,10 @@ def test_initialize_creates_all_tables_and_is_idempotent(tmp_path):
     assert [(row["version"], row["name"]) for row in migrations] == [
         (1, "initial_local_store"),
         (2, "enforce_database_compatibility"),
+        (3, "add_schema_object_cache"),
+        (4, "complete_schema_snapshot_metadata"),
+        (5, "add_query_result_limit"),
+        (6, "record_query_truncation"),
     ]
 
 
@@ -92,7 +99,7 @@ def test_initialize_is_safe_for_concurrent_application_starts(tmp_path):
         list(executor.map(lambda _index: database.initialize(), range(12)))
 
     with database.connect() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 2
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 6
 
 
 def test_second_migration_cleans_invalid_selection_from_phase_three_database(tmp_path):
@@ -136,7 +143,77 @@ def test_second_migration_cleans_invalid_selection_from_phase_three_database(tmp
         ).fetchone()
         migrations = connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
     assert (row["compatibility_status"], row["selected"]) == ("incompatible", 0)
-    assert migrations == 2
+    assert migrations == 6
+
+
+def test_sixth_migration_records_query_truncation_for_existing_history(tmp_path):
+    database = SQLiteDatabase(tmp_path / "toolbox.sqlite3")
+    with database.connect() as connection, connection:
+        connection.execute(
+            """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
+            )
+            """
+        )
+        for migration in MIGRATIONS[:5]:
+            for statement in migration.statements:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES (?, ?, '2026-07-19')",
+                (migration.version, migration.name),
+            )
+        connection.execute(
+            """
+            INSERT INTO execution_history (
+                action_name, action_type, started_at, success, app_version
+            ) VALUES ('consulta antiga', 'read_only_query', '2026-07-19', 1, 'test')
+            """
+        )
+
+    database.initialize()
+
+    with database.connect() as connection:
+        row = connection.execute(
+            "SELECT truncated FROM execution_history WHERE action_name = 'consulta antiga'"
+        ).fetchone()
+    assert row["truncated"] == 0
+
+
+def test_fourth_migration_upgrades_existing_phase_five_cache(tmp_path):
+    database = SQLiteDatabase(tmp_path / "toolbox.sqlite3")
+    with database.connect() as connection, connection:
+        connection.execute(
+            """
+            CREATE TABLE schema_migrations (
+                version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
+            )
+            """
+        )
+        for migration in MIGRATIONS[:3]:
+            for statement in migration.statements:
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations VALUES (?, ?, '2026-07-19')",
+                (migration.version, migration.name),
+            )
+
+    database.initialize()
+
+    with database.connect() as connection:
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(schema_cache)")
+        }
+        snapshot_table = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'schema_snapshots'"
+        ).fetchone()
+    assert {
+        "field_precision",
+        "character_length",
+        "character_set_name",
+        "collation_name",
+    } <= columns
+    assert snapshot_table is not None
 
 
 def test_schema_has_no_field_for_password_or_secret(tmp_path):
@@ -292,6 +369,7 @@ def test_phase_three_catalogs_and_history_are_persisted(tmp_path):
             parameters_schema={},
             risk_level="baixo",
             version="1",
+            result_limit=500,
         )
     )
     history_id = repository.add_execution_history(
@@ -304,6 +382,7 @@ def test_phase_three_catalogs_and_history_are_persisted(tmp_path):
             environment_id=environment_id,
             database_id=database_id,
             error_message="password=segredo",
+            truncated=True,
         )
     )
     repository.replace_schema_cache(
@@ -345,9 +424,39 @@ def test_phase_three_catalogs_and_history_are_persisted(tmp_path):
         ).fetchone()
 
     assert json.loads(template["required_tables"]) == ["RDB$DATABASE"]
+    loaded_template = repository.query_template(template_id)
+    assert loaded_template is not None
+    assert loaded_template.id == template_id
+    assert loaded_template.required_tables == ("RDB$DATABASE",)
+    assert loaded_template.result_limit == 500
+    assert repository.list_query_templates() == [loaded_template]
     assert history["error_message"] == "password=[REDACTED]"
+    assert history["truncated"] == 1
     assert json.loads(cache["index_names"]) == []
     assert json.loads(knowledge["solution_json"]) == ["Validar o ambiente"]
+
+
+def test_query_template_sql_is_not_corrupted_by_log_redaction(tmp_path):
+    _database, repository = make_store(tmp_path)
+    sql = "SELECT * FROM USUARIOS WHERE PASSWORD = :password"
+    template_id = repository.upsert_query_template(
+        QueryTemplate(
+            name="Usuário por senha de teste",
+            module="segurança",
+            description="Regressão de persistência",
+            sql_template=sql,
+            required_tables=("USUARIOS",),
+            required_fields={"USUARIOS": ("PASSWORD",)},
+            parameters_schema={"password": {"type": "text"}},
+            risk_level="baixo",
+            version="1",
+        )
+    )
+
+    loaded = repository.query_template(template_id)
+
+    assert loaded is not None
+    assert loaded.sql_template == sql
 
 
 def test_sensitive_values_are_redacted_from_all_free_text_payloads(tmp_path):
@@ -381,3 +490,49 @@ def test_sensitive_values_are_redacted_from_all_free_text_payloads(tmp_path):
     assert secret not in knowledge["solution_json"]
     assert secret not in knowledge["observations"]
     assert secret.encode() not in database.path.read_bytes()
+
+
+def test_schema_snapshot_replacement_is_atomic(tmp_path):
+    database_file = tmp_path / "SIAFLOJA.FDB"
+    database_file.write_bytes(b"database")
+    _database, repository = make_store(tmp_path)
+    environment_id = repository.record_discovery("SERVIDOR", make_report(str(database_file)))
+    with repository.database.connect() as connection:
+        database_id = int(
+            connection.execute(
+                "SELECT id FROM discovered_databases WHERE environment_id = ?",
+                (environment_id,),
+            ).fetchone()[0]
+        )
+    original_field = SchemaField("TAB_A", "ID", "INTEGER", False)
+    original_object = SchemaObject("relation", "TAB_A", {"is_view": False})
+    repository.mark_database_validated(
+        database_id,
+        schema_signature="sha256:test",
+        compatibility_status="compatible",
+        selected=True,
+    )
+    repository.replace_schema_snapshot(
+        database_id,
+        [original_field],
+        [original_object],
+        server_version="2.5.7.27050",
+        ods_version="11.2",
+        checked_at="2026-07-19T12:00:00+00:00",
+    )
+
+    with pytest.raises(ValueError, match="inválido"):
+        repository.replace_schema_snapshot(
+            database_id,
+            [SchemaField("TAB_B", "ID", "INTEGER", False)],
+            [SchemaObject("invalid", "TAB_B", {})],
+            server_version="2.5.7.27050",
+            ods_version="11.2",
+            checked_at="2026-07-19T12:01:00+00:00",
+        )
+
+    fields, objects = repository.load_schema_cache(database_id)
+    assert [(item.relation_name, item.field_name) for item in fields] == [("TAB_A", "ID")]
+    assert [(item.object_type, item.object_name) for item in objects] == [
+        ("relation", "TAB_A")
+    ]

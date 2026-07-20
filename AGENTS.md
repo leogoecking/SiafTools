@@ -12,7 +12,6 @@
 10. Detectar tanto servidor local quanto terminal conectado a servidor remoto.
 11. Não realizar varredura recursiva completa do disco ao iniciar.
 12. Classificar a base pelo esquema, não apenas pelo nome do arquivo.
-13. Não tentar extrair, quebrar ou descriptografar senha do SIAF.
 14. O modo padrão da aplicação é somente leitura.
 15. A interface nunca executa SQL diretamente.
 16. Não inventar tabelas, campos, menus ou regras do SIAF.

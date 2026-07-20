@@ -17,13 +17,23 @@ from siaf_support_toolbox.discovery.models import DiscoveryReport, MachineMode
 from siaf_support_toolbox.services.connection_service import (
     ConnectionPlan,
     ConnectionSummary,
+    ConnectionTarget,
     ManualConnectionInput,
     SessionCredentials,
 )
 from siaf_support_toolbox.services.diagnostic_export_service import DiagnosticExportService
+from siaf_support_toolbox.services.query_execution_service import (
+    QueryExecutionService,
+    QueryExecutionSummary,
+)
+from siaf_support_toolbox.services.query_export_service import QueryExportResult
+from siaf_support_toolbox.services.query_result_store import QueryResultPage
+from siaf_support_toolbox.services.schema_inspection_service import (
+    SchemaInspectionSummary,
+)
 from siaf_support_toolbox.ui.dialogs import ask_credentials, ask_manual_connection, show_message
 from siaf_support_toolbox.ui.navigation import NAVIGATION_ITEMS, VALID_PAGE_IDS, navigation_item
-from siaf_support_toolbox.ui.pages import EnvironmentPage, PlaceholderPage
+from siaf_support_toolbox.ui.pages import EnvironmentPage, PlaceholderPage, QueryPage
 from siaf_support_toolbox.ui.preferences import (
     MINIMUM_HEIGHT,
     MINIMUM_WIDTH,
@@ -62,12 +72,36 @@ class ConnectionProvider(Protocol):
     ) -> ConnectionSummary: ...
 
 
+class SchemaInspectionProvider(Protocol):
+    def inspect_many(
+        self,
+        targets: tuple[tuple[ConnectionTarget, int], ...],
+        credentials: SessionCredentials,
+    ) -> tuple[SchemaInspectionSummary, ...]: ...
+
+
+class QueryProvider(Protocol):
+    def list_templates(self) -> list[object]: ...
+
+    def execute(self, **kwargs: object) -> QueryExecutionSummary: ...
+
+    def read_page(self, result_id: str, number: int, page_size: int = 100) -> QueryResultPage: ...
+
+    def export_result(self, **kwargs: object) -> QueryExportResult: ...
+
+    def close_result(self, result_id: str | None) -> None: ...
+
+    def close(self) -> None: ...
+
+
 class MainWindow(tk.Tk):
     def __init__(
         self,
         orchestrator: DiscoveryProvider | None = None,
         *,
         connection_service: ConnectionProvider | None = None,
+        schema_inspector: SchemaInspectionProvider | None = None,
+        query_service: QueryExecutionService | None = None,
         diagnostic_exporter: DiagnosticExportService | None = None,
         paths: AppPaths | None = None,
         preferences_store: WindowPreferencesStore | None = None,
@@ -90,10 +124,18 @@ class MainWindow(tk.Tk):
 
         self._orchestrator = orchestrator or DiscoveryOrchestrator()
         self._connection_service = connection_service
+        self._schema_inspector = schema_inspector
+        self._query_service = query_service
         self._diagnostic_exporter = diagnostic_exporter
         self._events: queue.Queue[tuple[str, object]] = queue.Queue()
         self._discovery_thread: threading.Thread | None = None
         self._connection_thread: threading.Thread | None = None
+        self._inspection_thread: threading.Thread | None = None
+        self._query_thread: threading.Thread | None = None
+        self._query_cancel = threading.Event()
+        self._query_export_thread: threading.Thread | None = None
+        self._query_export_cancel = threading.Event()
+        self._query_summary: QueryExecutionSummary | None = None
         self._discovery_started_at: float | None = None
         self._last_report: DiscoveryReport | None = None
         self._last_plan = ConnectionPlan(())
@@ -243,8 +285,20 @@ class MainWindow(tk.Tk):
                     self.start_connection_validation,
                     self.export_diagnostic,
                     self.start_manual_connection,
+                    self.start_schema_inspection,
                 )
                 self.environment_page = page
+            elif item.page_id == "queries":
+                page = QueryPage(
+                    self._page_container,
+                    self.start_query,
+                    self.start_query_export,
+                    self.cancel_active_operation,
+                    self.show_query_page,
+                )
+                self.query_page = page
+                if self._query_service is not None:
+                    self.query_page.set_templates(self._query_service.list_templates())
             else:
                 page = PlaceholderPage(self._page_container, item.title, item.description)
             page.grid(row=0, column=0, sticky="nsew")
@@ -268,7 +322,9 @@ class MainWindow(tk.Tk):
         self.output_label.grid(row=1, column=3, sticky="w", pady=(2, 0))
         self.indicator_label = ttk.Label(footer, text="Sem avisos", style="TopInfo.TLabel")
         self.indicator_label.grid(row=0, column=4, padx=12)
-        self.cancel_button = ttk.Button(footer, text="Cancelar", state="disabled")
+        self.cancel_button = ttk.Button(
+            footer, text="Cancelar", command=self.cancel_active_operation, state="disabled"
+        )
         self.cancel_button.grid(row=0, column=5, padx=(8, 0), rowspan=2)
 
     def navigate(self, page_id: str) -> None:
@@ -340,6 +396,9 @@ class MainWindow(tk.Tk):
         return bool(
             (self._discovery_thread and self._discovery_thread.is_alive())
             or (self._connection_thread and self._connection_thread.is_alive())
+            or (self._inspection_thread and self._inspection_thread.is_alive())
+            or (self._query_thread and self._query_thread.is_alive())
+            or (self._query_export_thread and self._query_export_thread.is_alive())
         )
 
     def _run_discovery(self) -> None:
@@ -361,6 +420,20 @@ class MainWindow(tk.Tk):
                     self._render_connection(payload)  # type: ignore[arg-type]
                 elif event == "connection_error":
                     self._render_connection_error(payload)  # type: ignore[arg-type]
+                elif event == "schema":
+                    self._render_schema_inspection(payload)  # type: ignore[arg-type]
+                elif event == "schema_error":
+                    self._render_schema_error(payload)  # type: ignore[arg-type]
+                elif event == "query":
+                    self._render_query(payload)  # type: ignore[arg-type]
+                elif event == "query_error":
+                    self._render_query_error(payload)  # type: ignore[arg-type]
+                elif event == "query_export":
+                    self._render_query_export(payload)  # type: ignore[arg-type]
+                elif event == "query_export_progress":
+                    self.records_label.config(text=f"Registros: {int(payload)} exportados")
+                elif event == "query_export_error":
+                    self._render_query_export_error(payload)  # type: ignore[arg-type]
                 else:
                     self._render_error(payload)  # type: ignore[arg-type]
         except queue.Empty:
@@ -375,6 +448,7 @@ class MainWindow(tk.Tk):
         self._finish_discovery()
         self._last_report = report
         self._last_summary = None
+        self.query_page.set_databases(())  # type: ignore[attr-defined]
         if self._connection_service is not None:
             self._last_plan = self._connection_service.build_plan(report)
         else:
@@ -389,6 +463,7 @@ class MainWindow(tk.Tk):
             validate=bool(self._last_plan.targets),
             export=self._diagnostic_exporter is not None,
             manual=self._connection_service is not None,
+            inspect=False,
         )
         mode = _MODE_LABELS.get(report.mode, str(report.mode))
         firebird_count = len(report.services) + len(report.firebird_processes)
@@ -445,6 +520,10 @@ class MainWindow(tk.Tk):
             credentials.clear()
             return
         self._last_plan = plan
+        self._last_summary = None
+        query_page = getattr(self, "query_page", None)
+        if query_page is not None:
+            query_page.set_databases(())
         self.environment_page.set_busy(True)  # type: ignore[attr-defined]
         self.environment_page.set_actions(  # type: ignore[attr-defined]
             validate=False, export=False, manual=False
@@ -481,10 +560,12 @@ class MainWindow(tk.Tk):
         self._finish_discovery()
         self._last_summary = summary
         successful = summary.successful
+        self.query_page.set_databases(successful)  # type: ignore[attr-defined]
         self.environment_page.set_actions(  # type: ignore[attr-defined]
             validate=bool(self._last_plan.targets),
             export=self._diagnostic_exporter is not None,
             manual=self._connection_service is not None,
+            inspect=bool(successful and self._schema_inspector is not None),
         )
         lines = ["", "", "Validação de conexão:"]
         for validation in summary.validations:
@@ -523,7 +604,328 @@ class MainWindow(tk.Tk):
             validate=bool(self._last_plan.targets),
             export=self._diagnostic_exporter is not None,
             manual=self._connection_service is not None,
+            inspect=bool(
+                self._schema_inspector is not None
+                and self._last_summary
+                and self._last_summary.successful
+            ),
         )
+
+    def start_schema_inspection(self) -> None:
+        if self._closing or self._worker_running() or self._schema_inspector is None:
+            return
+        successful = self._last_summary.successful if self._last_summary else ()
+        targets = tuple(
+            (item.target, item.database_id)
+            for item in successful
+            if item.database_id is not None
+        )
+        if not targets:
+            show_message(
+                self,
+                "Inspeção indisponível",
+                "Valide primeiro uma base compatível para inspecionar sua estrutura.",
+            )
+            return
+        credentials = ask_credentials(self)
+        if credentials is None:
+            return
+        self.environment_page.set_busy(True)  # type: ignore[attr-defined]
+        self.environment_page.set_actions(  # type: ignore[attr-defined]
+            validate=False, export=False, manual=False, inspect=False
+        )
+        self.progress.start(12)
+        self.status_label.config(text="Lendo catálogo Firebird em modo somente leitura...")
+        self.indicator_label.config(text="Inspeção em andamento")
+        self._discovery_started_at = time.monotonic()
+        self._inspection_thread = threading.Thread(
+            target=self._run_schema_inspection,
+            args=(targets, credentials),
+            name="schema-inspection-worker",
+            daemon=True,
+        )
+        self._inspection_thread.start()
+
+    def _run_schema_inspection(
+        self,
+        targets: tuple[tuple[ConnectionTarget, int], ...],
+        credentials: SessionCredentials,
+    ) -> None:
+        try:
+            assert self._schema_inspector is not None
+            summaries = self._schema_inspector.inspect_many(targets, credentials)
+            self._events.put(("schema", summaries))
+        except Exception as exc:
+            credentials.clear()
+            LOGGER.exception("Inspeção do catálogo Firebird falhou")
+            self._events.put(("schema_error", exc))
+
+    def _render_schema_inspection(
+        self, summaries: tuple[SchemaInspectionSummary, ...]
+    ) -> None:
+        self._finish_discovery()
+        self.environment_page.set_actions(  # type: ignore[attr-defined]
+            validate=bool(self._last_plan.targets),
+            export=self._diagnostic_exporter is not None,
+            manual=self._connection_service is not None,
+            inspect=bool(self._last_summary and self._last_summary.successful),
+        )
+        successful = tuple(
+            item for item in summaries if item.result.success and item.result.snapshot is not None
+        )
+        lines = ["", "", "Inspeção de estrutura:"]
+        for item in summaries:
+            snapshot = item.result.snapshot
+            if item.result.success and snapshot is not None:
+                status = (
+                    f"{len(snapshot.relations)} relações, {len(snapshot.fields)} campos, "
+                    f"{len(snapshot.indexes)} índices, {len(snapshot.triggers)} triggers, "
+                    f"{len(snapshot.procedures)} procedures e "
+                    f"{len(snapshot.generators)} generators"
+                )
+            else:
+                status = f"falha — {item.result.message or 'erro não informado'}"
+            lines.append(
+                f"  • {item.target.database_path} — {status} ({item.duration_ms} ms)"
+            )
+        self.environment_page.append_details("\n".join(lines))  # type: ignore[attr-defined]
+        if not successful:
+            self.status_label.config(text="Não foi possível inspecionar a estrutura")
+            self.indicator_label.config(text="Falha na inspeção")
+            return
+        total_fields = sum(len(item.result.snapshot.fields) for item in successful)
+        self.records_label.config(text=f"Registros: {total_fields} campos")
+        self.status_label.config(
+            text=f"Estrutura de {len(successful)} base(s) armazenada em cache"
+        )
+        self.indicator_label.config(text="Catálogo validado")
+
+    def _render_schema_error(self, _error: Exception) -> None:
+        self._finish_discovery()
+        self.environment_page.append_details(  # type: ignore[attr-defined]
+            "\n\nA inspeção encontrou um erro inesperado. Consulte errors.log."
+        )
+        self.environment_page.set_actions(  # type: ignore[attr-defined]
+            validate=bool(self._last_plan.targets),
+            export=self._diagnostic_exporter is not None,
+            manual=self._connection_service is not None,
+            inspect=bool(self._last_summary and self._last_summary.successful),
+        )
+        self.status_label.config(text="Não foi possível concluir a inspeção da estrutura")
+        self.indicator_label.config(text="Erro de inspeção")
+
+    def start_query(
+        self,
+        template_id: int,
+        target: ConnectionTarget,
+        database_id: int,
+        parameters: dict[str, object],
+    ) -> None:
+        if self._closing or self._worker_running() or self._query_service is None:
+            return
+        credentials = ask_credentials(self)
+        if credentials is None:
+            return
+        if self._query_summary is not None:
+            self._query_service.close_result(self._query_summary.result_id)
+        self._query_summary = None
+        self.query_page.clear_results("Executando nova consulta...")  # type: ignore[attr-defined]
+        self.output_label.config(text="Arquivo: —")
+        self._query_cancel = threading.Event()
+        self.query_page.set_busy(True)  # type: ignore[attr-defined]
+        self.progress.start(12)
+        self.cancel_button.configure(state="normal")
+        self.status_label.config(text="Executando consulta em modo somente leitura...")
+        self.indicator_label.config(text="Consulta em andamento")
+        self._discovery_started_at = time.monotonic()
+        self._query_thread = threading.Thread(
+            target=self._run_query,
+            args=(template_id, target, database_id, credentials, parameters),
+            name="query-worker",
+            daemon=True,
+        )
+        self._query_thread.start()
+
+    def _run_query(
+        self,
+        template_id: int,
+        target: ConnectionTarget,
+        database_id: int,
+        credentials: SessionCredentials,
+        parameters: dict[str, object],
+    ) -> None:
+        try:
+            assert self._query_service is not None
+            summary = self._query_service.execute(
+                template_id=template_id,
+                target=target,
+                database_id=database_id,
+                credentials=credentials,
+                parameters=parameters,
+                cancel_event=self._query_cancel,
+            )
+            self._events.put(("query", summary))
+        except Exception as exc:
+            credentials.clear()
+            LOGGER.exception("Consulta somente leitura falhou")
+            self._events.put(("query_error", exc))
+
+    def cancel_query(self) -> None:
+        if self._query_thread and self._query_thread.is_alive():
+            self._query_cancel.set()
+            self.status_label.config(text="Cancelamento solicitado; aguardando o lote atual...")
+            self.indicator_label.config(text="Cancelando consulta")
+
+    def cancel_active_operation(self) -> None:
+        if self._query_export_thread and self._query_export_thread.is_alive():
+            self._query_export_cancel.set()
+            self.status_label.config(
+                text="Cancelamento solicitado; finalizando o lote da exportação..."
+            )
+            self.indicator_label.config(text="Cancelando exportação")
+            return
+        self.cancel_query()
+
+    def _render_query(self, summary: QueryExecutionSummary) -> None:
+        self._finish_query()
+        self._query_summary = summary
+        self.query_page.render_summary(summary)  # type: ignore[attr-defined]
+        self.records_label.config(text=f"Registros exibidos: {summary.records_processed}")
+        if summary.result_id is not None and summary.columns:
+            self.show_query_page(1)
+            self.query_page.set_export_available(True)  # type: ignore[attr-defined]
+        if summary.success and summary.truncated:
+            self.status_label.config(
+                text="Resultado limitado; refine os filtros antes de usar a exportação"
+            )
+            self.indicator_label.config(text="Limite de registros atingido")
+        elif summary.success:
+            self.status_label.config(text="Consulta concluída em modo somente leitura")
+            self.indicator_label.config(text="Resultado paginado")
+        elif summary.canceled:
+            self.status_label.config(text="Consulta cancelada")
+            self.indicator_label.config(text="Cancelamento concluído")
+        else:
+            self.status_label.config(text=summary.message or "Consulta bloqueada")
+            self.indicator_label.config(text="Consulta não executada")
+
+    def _render_query_error(self, _error: Exception) -> None:
+        self._finish_query()
+        self.query_page.render_summary(  # type: ignore[attr-defined]
+            QueryExecutionSummary(
+                0, "Consulta", False, message="Erro inesperado; consulte errors.log"
+            )
+        )
+        self.status_label.config(text="Não foi possível concluir a consulta")
+        self.indicator_label.config(text="Erro de consulta")
+
+    def show_query_page(self, number: int) -> None:
+        if (
+            self._query_service is None
+            or self._query_summary is None
+            or self._query_summary.result_id is None
+        ):
+            return
+        try:
+            page = self._query_service.read_page(self._query_summary.result_id, number, 100)
+        except (LookupError, OSError, ValueError):
+            LOGGER.exception("Resultado temporário indisponível")
+            self.status_label.config(text="O resultado temporário não está mais disponível")
+            return
+        self.query_page.render_page(self._query_summary.columns, page)  # type: ignore[attr-defined]
+
+    def start_query_export(self, file_format: str) -> None:
+        summary = self._query_summary
+        if (
+            self._closing
+            or self._worker_running()
+            or self._query_service is None
+            or summary is None
+            or summary.result_id is None
+            or not summary.columns
+        ):
+            return
+        self._query_export_cancel = threading.Event()
+        self.output_label.config(text="Arquivo: —")
+        self.query_page.set_busy(True)  # type: ignore[attr-defined]
+        self.progress.start(12)
+        self.cancel_button.configure(state="normal")
+        self.status_label.config(text=f"Exportando resultado para {file_format.upper()}...")
+        self.indicator_label.config(text="Exportação em andamento")
+        self._discovery_started_at = time.monotonic()
+        self._query_export_thread = threading.Thread(
+            target=self._run_query_export,
+            args=(summary, file_format),
+            name="query-export-worker",
+            daemon=True,
+        )
+        self._query_export_thread.start()
+
+    def _run_query_export(
+        self, summary: QueryExecutionSummary, file_format: str
+    ) -> None:
+        try:
+            assert self._query_service is not None
+            assert summary.result_id is not None
+            result = self._query_service.export_result(
+                result_id=summary.result_id,
+                columns=summary.columns,
+                template_name=(
+                    f"{summary.template_name}-RESULTADO-PARCIAL"
+                    if summary.truncated
+                    else summary.template_name
+                ),
+                file_format=file_format,
+                cancel_event=self._query_export_cancel,
+                on_progress=lambda count: self._events.put(
+                    ("query_export_progress", count)
+                ),
+            )
+            self._events.put(("query_export", result))
+        except Exception as exc:
+            LOGGER.exception("Exportação do resultado falhou")
+            self._events.put(("query_export_error", exc))
+
+    def _render_query_export(self, result: QueryExportResult) -> None:
+        self._finish_query()
+        if result.success and result.output_file is not None:
+            self.output_label.config(text=f"Arquivo: {result.output_file}")
+            partial = bool(self._query_summary and self._query_summary.truncated)
+            self.status_label.config(
+                text=(
+                    f"Exportação parcial concluída: {result.records_processed} registro(s); "
+                    "refine os filtros para obter o conjunto completo"
+                    if partial
+                    else f"Exportação concluída: {result.records_processed} registro(s)"
+                )
+            )
+            self.indicator_label.config(text=f"{result.file_format.upper()} gerado")
+        elif result.canceled:
+            self.output_label.config(text="Arquivo: —")
+            self.status_label.config(text="Exportação cancelada sem gerar arquivo parcial")
+            self.indicator_label.config(text="Cancelamento concluído")
+        else:
+            self.output_label.config(text="Arquivo: —")
+            self.status_label.config(text=result.message or "Não foi possível exportar")
+            self.indicator_label.config(text="Falha na exportação")
+        self.query_page.set_export_available(  # type: ignore[attr-defined]
+            self._query_summary is not None and self._query_summary.result_id is not None
+        )
+
+    def _render_query_export_error(self, _error: Exception) -> None:
+        self._finish_query()
+        self.output_label.config(text="Arquivo: —")
+        self.status_label.config(text="Não foi possível concluir a exportação")
+        self.indicator_label.config(text="Erro de exportação")
+        self.query_page.set_export_available(  # type: ignore[attr-defined]
+            self._query_summary is not None and self._query_summary.result_id is not None
+        )
+
+    def _finish_query(self) -> None:
+        self.progress.stop()
+        self.cancel_button.configure(state="disabled")
+        self.query_page.set_busy(False)  # type: ignore[attr-defined]
+        self._discovery_started_at = None
 
     def export_diagnostic(self) -> None:
         if self._last_report is None or self._diagnostic_exporter is None:
@@ -546,6 +948,7 @@ class MainWindow(tk.Tk):
         self._last_report = None
         self._last_plan = ConnectionPlan(())
         self._last_summary = None
+        self.query_page.set_databases(())  # type: ignore[attr-defined]
         self._set_header_unavailable()
         self.status_label.config(text="A análise encontrou um erro inesperado")
         self.indicator_label.config(text="Erro")
@@ -591,6 +994,8 @@ class MainWindow(tk.Tk):
         if self._closing:
             return
         self._closing = True
+        self._query_cancel.set()
+        self._query_export_cancel.set()
         try:
             self._preferences_store.save(self._capture_preferences())
         except OSError:
@@ -598,4 +1003,6 @@ class MainWindow(tk.Tk):
         if self._poll_after_id is not None:
             with suppress(tk.TclError):
                 self.after_cancel(self._poll_after_id)
+        if self._query_service is not None:
+            self._query_service.close()
         self.destroy()

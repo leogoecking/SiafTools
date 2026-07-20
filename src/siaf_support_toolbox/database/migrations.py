@@ -256,6 +256,76 @@ MIGRATIONS = (
             """,
         ),
     ),
+    Migration(
+        3,
+        "add_schema_object_cache",
+        (
+            """
+            CREATE TABLE IF NOT EXISTS schema_object_cache (
+                id INTEGER PRIMARY KEY,
+                database_id INTEGER NOT NULL,
+                object_type TEXT NOT NULL CHECK (
+                    object_type IN ('relation', 'index', 'trigger', 'procedure', 'generator')
+                ),
+                object_name TEXT NOT NULL,
+                relation_name TEXT,
+                details_json TEXT NOT NULL,
+                checked_at TEXT NOT NULL,
+                FOREIGN KEY (database_id) REFERENCES discovered_databases(id)
+                    ON DELETE CASCADE,
+                UNIQUE (database_id, object_type, object_name)
+            )
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_schema_objects_database_type
+            ON schema_object_cache(database_id, object_type, object_name)
+            """,
+        ),
+    ),
+    Migration(
+        4,
+        "complete_schema_snapshot_metadata",
+        (
+            "ALTER TABLE schema_cache ADD COLUMN field_precision INTEGER",
+            "ALTER TABLE schema_cache ADD COLUMN character_length INTEGER",
+            "ALTER TABLE schema_cache ADD COLUMN character_set_name TEXT",
+            "ALTER TABLE schema_cache ADD COLUMN collation_name TEXT",
+            """
+            CREATE TABLE IF NOT EXISTS schema_snapshots (
+                database_id INTEGER PRIMARY KEY,
+                schema_signature TEXT NOT NULL,
+                server_version TEXT NOT NULL,
+                ods_version TEXT NOT NULL,
+                field_count INTEGER NOT NULL CHECK (field_count >= 0),
+                object_count INTEGER NOT NULL CHECK (object_count >= 0),
+                checked_at TEXT NOT NULL,
+                FOREIGN KEY (database_id) REFERENCES discovered_databases(id)
+                    ON DELETE CASCADE
+            )
+            """,
+        ),
+    ),
+    Migration(
+        5,
+        "add_query_result_limit",
+        (
+            """
+            ALTER TABLE query_templates
+            ADD COLUMN result_limit INTEGER CHECK (result_limit IS NULL OR result_limit >= 1)
+            """,
+        ),
+    ),
+    Migration(
+        6,
+        "record_query_truncation",
+        (
+            """
+            ALTER TABLE execution_history
+            ADD COLUMN truncated INTEGER NOT NULL DEFAULT 0
+                CHECK (truncated IN (0, 1))
+            """,
+        ),
+    ),
 )
 
 
