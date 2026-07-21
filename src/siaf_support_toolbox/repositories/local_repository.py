@@ -522,6 +522,29 @@ class LocalRepository:
             )
             return int(cursor.lastrowid)
 
+    def query_execution_samples(
+        self, action_name: str, database_id: int, limit: int = 5
+    ) -> tuple[tuple[int, int], ...]:
+        """Retorna execuções completas recentes para estimar consultas equivalentes."""
+        safe_limit = min(max(1, limit), 20)
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT duration_ms, records_processed
+                FROM execution_history
+                WHERE action_type = 'read_only_query'
+                  AND action_name = ?
+                  AND database_id = ?
+                  AND success = 1
+                  AND truncated = 0
+                  AND duration_ms IS NOT NULL
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (_text(action_name), database_id, safe_limit),
+            ).fetchall()
+        return tuple((int(row[0]), int(row[1])) for row in rows)
+
     def replace_schema_cache(self, database_id: int, fields: list[SchemaField]) -> None:
         with self.database.connect() as connection, connection:
             connection.execute("DELETE FROM schema_cache WHERE database_id = ?", (database_id,))

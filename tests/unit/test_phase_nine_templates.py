@@ -44,7 +44,6 @@ def test_phase_nine_templates_cover_finance_and_permission_relations():
 
 def test_phase_nine_sql_is_read_only_and_declares_exact_dependencies():
     templates = _phase_nine_templates()
-    diagnostic = templates[-2]
 
     for template in templates:
         validation = validate_read_only_sql(template.sql_template)
@@ -55,12 +54,8 @@ def test_phase_nine_sql_is_read_only_and_declares_exact_dependencies():
         }
         assert all(template.required_fields.values())
         assert template.read_only
-
-    assert "FIRST 501" not in diagnostic.sql_template
-    assert diagnostic.result_limit is None
-    for template in (item for item in templates if item is not diagnostic):
-        assert "FIRST 501" in template.sql_template
-        assert template.result_limit == 500
+        assert "FIRST 501" not in template.sql_template
+        assert template.result_limit is None
 
 
 def test_phase_nine_templates_require_a_filter_before_execution():

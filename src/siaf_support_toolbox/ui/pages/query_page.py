@@ -184,7 +184,12 @@ class QueryPage(ttk.Frame):
 
     def render_summary(self, summary: QueryExecutionSummary) -> None:
         if summary.canceled:
-            text = f"Consulta cancelada após {summary.records_processed} registro(s)."
+            text = (
+                f"Consulta cancelada após {summary.records_processed} registro(s). "
+                "O resultado disponível é parcial."
+                if summary.partial
+                else "Consulta cancelada antes do recebimento de registros."
+            )
         elif summary.success and summary.truncated:
             text = (
                 f"Limite atingido: exibindo os primeiros {summary.records_processed} "
@@ -198,6 +203,9 @@ class QueryPage(ttk.Frame):
         else:
             text = summary.message or "A consulta não pôde ser executada."
         self.status.configure(text=text)
+
+    def render_progress(self, message: str) -> None:
+        self.status.configure(text=message)
 
     def clear_results(self, message: str | None = None) -> None:
         self.tree.delete(*self.tree.get_children())

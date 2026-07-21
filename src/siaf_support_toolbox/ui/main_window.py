@@ -7,6 +7,7 @@ import threading
 import time
 import tkinter as tk
 from contextlib import suppress
+from datetime import datetime, timedelta
 from tkinter import ttk
 from typing import Protocol
 
@@ -23,6 +24,7 @@ from siaf_support_toolbox.services.connection_service import (
 )
 from siaf_support_toolbox.services.diagnostic_export_service import DiagnosticExportService
 from siaf_support_toolbox.services.query_execution_service import (
+    QueryExecutionEstimate,
     QueryExecutionService,
     QueryExecutionSummary,
 )
@@ -83,6 +85,10 @@ class SchemaInspectionProvider(Protocol):
 class QueryProvider(Protocol):
     def list_templates(self) -> list[object]: ...
 
+    def estimate_execution(
+        self, template_id: int, database_id: int
+    ) -> QueryExecutionEstimate | None: ...
+
     def execute(self, **kwargs: object) -> QueryExecutionSummary: ...
 
     def read_page(self, result_id: str, number: int, page_size: int = 100) -> QueryResultPage: ...
@@ -136,6 +142,9 @@ class MainWindow(tk.Tk):
         self._query_export_thread: threading.Thread | None = None
         self._query_export_cancel = threading.Event()
         self._query_summary: QueryExecutionSummary | None = None
+        self._query_estimate: QueryExecutionEstimate | None = None
+        self._query_started_at: float | None = None
+        self._query_progress_records = 0
         self._discovery_started_at: float | None = None
         self._last_report: DiscoveryReport | None = None
         self._last_plan = ConnectionPlan(())
@@ -428,6 +437,11 @@ class MainWindow(tk.Tk):
                     self._render_query(payload)  # type: ignore[arg-type]
                 elif event == "query_error":
                     self._render_query_error(payload)  # type: ignore[arg-type]
+                elif event == "query_progress":
+                    records, _duration_ms = payload  # type: ignore[misc]
+                    self._query_progress_records = int(records)
+                    self.records_label.config(text=f"Registros recebidos: {int(records)}")
+                    self._render_query_progress()
                 elif event == "query_export":
                     self._render_query_export(payload)  # type: ignore[arg-type]
                 elif event == "query_export_progress":
@@ -442,6 +456,8 @@ class MainWindow(tk.Tk):
         if self._discovery_started_at is not None:
             elapsed = max(0, int(time.monotonic() - self._discovery_started_at))
             self.elapsed_label.config(text=f"Tempo: {elapsed // 60:02d}:{elapsed % 60:02d}")
+        if self._query_started_at is not None and not self._query_cancel.is_set():
+            self._render_query_progress()
         self._poll_after_id = self.after(100, self._poll_events)
 
     def _render_report(self, report: DiscoveryReport) -> None:
@@ -726,6 +742,13 @@ class MainWindow(tk.Tk):
         credentials = ask_credentials(self)
         if credentials is None:
             return
+        try:
+            self._query_estimate = self._query_service.estimate_execution(
+                template_id, database_id
+            )
+        except Exception:
+            LOGGER.exception("Não foi possível estimar a duração da consulta")
+            self._query_estimate = None
         if self._query_summary is not None:
             self._query_service.close_result(self._query_summary.result_id)
         self._query_summary = None
@@ -738,6 +761,9 @@ class MainWindow(tk.Tk):
         self.status_label.config(text="Executando consulta em modo somente leitura...")
         self.indicator_label.config(text="Consulta em andamento")
         self._discovery_started_at = time.monotonic()
+        self._query_started_at = self._discovery_started_at
+        self._query_progress_records = 0
+        self._render_query_progress()
         self._query_thread = threading.Thread(
             target=self._run_query,
             args=(template_id, target, database_id, credentials, parameters),
@@ -763,6 +789,9 @@ class MainWindow(tk.Tk):
                 credentials=credentials,
                 parameters=parameters,
                 cancel_event=self._query_cancel,
+                on_progress=lambda records, duration_ms: self._events.put(
+                    ("query_progress", (records, duration_ms))
+                ),
             )
             self._events.put(("query", summary))
         except Exception as exc:
@@ -773,7 +802,12 @@ class MainWindow(tk.Tk):
     def cancel_query(self) -> None:
         if self._query_thread and self._query_thread.is_alive():
             self._query_cancel.set()
-            self.status_label.config(text="Cancelamento solicitado; aguardando o lote atual...")
+            self.status_label.config(
+                text="Cancelamento solicitado; interrompendo a operação Firebird..."
+            )
+            self.query_page.render_progress(  # type: ignore[attr-defined]
+                "Cancelamento solicitado; aguarde a confirmação do servidor."
+            )
             self.indicator_label.config(text="Cancelando consulta")
 
     def cancel_active_operation(self) -> None:
@@ -803,7 +837,13 @@ class MainWindow(tk.Tk):
             self.status_label.config(text="Consulta concluída em modo somente leitura")
             self.indicator_label.config(text="Resultado paginado")
         elif summary.canceled:
-            self.status_label.config(text="Consulta cancelada")
+            self.status_label.config(
+                text=(
+                    "Consulta cancelada; o resultado parcial está identificado para exportação"
+                    if summary.partial
+                    else "Consulta cancelada"
+                )
+            )
             self.indicator_label.config(text="Cancelamento concluído")
         else:
             self.status_label.config(text=summary.message or "Consulta bloqueada")
@@ -872,7 +912,7 @@ class MainWindow(tk.Tk):
                 columns=summary.columns,
                 template_name=(
                     f"{summary.template_name}-RESULTADO-PARCIAL"
-                    if summary.truncated
+                    if summary.partial
                     else summary.template_name
                 ),
                 file_format=file_format,
@@ -890,7 +930,7 @@ class MainWindow(tk.Tk):
         self._finish_query()
         if result.success and result.output_file is not None:
             self.output_label.config(text=f"Arquivo: {result.output_file}")
-            partial = bool(self._query_summary and self._query_summary.truncated)
+            partial = bool(self._query_summary and self._query_summary.partial)
             self.status_label.config(
                 text=(
                     f"Exportação parcial concluída: {result.records_processed} registro(s); "
@@ -926,6 +966,19 @@ class MainWindow(tk.Tk):
         self.cancel_button.configure(state="disabled")
         self.query_page.set_busy(False)  # type: ignore[attr-defined]
         self._discovery_started_at = None
+        self._query_started_at = None
+
+    def _render_query_progress(self) -> None:
+        if self._query_started_at is None:
+            return
+        elapsed_ms = max(0, int((time.monotonic() - self._query_started_at) * 1000))
+        message = _query_progress_message(
+            elapsed_ms,
+            self._query_progress_records,
+            self._query_estimate,
+        )
+        self.status_label.config(text=message)
+        self.query_page.render_progress(message)  # type: ignore[attr-defined]
 
     def export_diagnostic(self) -> None:
         if self._last_report is None or self._diagnostic_exporter is None:
@@ -1006,3 +1059,46 @@ class MainWindow(tk.Tk):
         if self._query_service is not None:
             self._query_service.close()
         self.destroy()
+
+
+def _query_progress_message(
+    elapsed_ms: int,
+    records_processed: int,
+    estimate: QueryExecutionEstimate | None,
+) -> str:
+    if estimate is None:
+        return (
+            "Consulta em andamento; ainda não há histórico suficiente para estimar "
+            "a conclusão. Você pode cancelar a qualquer momento."
+        )
+
+    estimated_total_ms = max(elapsed_ms, estimate.duration_ms)
+    if 0 < records_processed < estimate.expected_records:
+        rate_total_ms = int(
+            elapsed_ms * estimate.expected_records / max(1, records_processed)
+        )
+        estimated_total_ms = max(
+            elapsed_ms,
+            int((estimate.duration_ms + rate_total_ms) / 2),
+        )
+    remaining_ms = max(0, estimated_total_ms - elapsed_ms)
+    if remaining_ms == 0:
+        return (
+            "A previsão inicial foi ultrapassada; a consulta continua em andamento. "
+            "Você pode cancelar a qualquer momento."
+        )
+
+    completion = datetime.now() + timedelta(milliseconds=remaining_ms)
+    return (
+        f"Conclusão estimada às {completion:%H:%M:%S} "
+        f"(aprox. {_human_duration(remaining_ms)} restantes, "
+        f"baseado em {estimate.sample_count} execução(ões)). Você pode cancelar."
+    )
+
+
+def _human_duration(duration_ms: int) -> str:
+    total_seconds = max(1, (duration_ms + 999) // 1000)
+    minutes, seconds = divmod(total_seconds, 60)
+    if minutes:
+        return f"{minutes} min {seconds:02d} s"
+    return f"{seconds} s"

@@ -43,7 +43,10 @@ A interface possui menu lateral com as áreas previstas no roadmap, temas claro 
 persistência de tamanho, posição, estado e última página. Validação e inspeção rodam fora da
 thread da interface e cada worker abre sua própria conexão Firebird somente leitura. A página
 **Consultas** executa somente templates validados, com parâmetros vinculados, `fetchmany`,
-cancelamento cooperativo e paginação em cache temporário. A Fase 7 acrescenta buscas validadas
+cancelamento nativo da operação Firebird quando suportado pela DLL e paginação em cache
+temporário. Durante a execução, a tela mostra uma previsão de conclusão baseada no histórico
+completo do mesmo template e da mesma base e mantém a opção de cancelamento disponível. A Fase
+7 acrescenta buscas validadas
 de produtos, clientes e fornecedores, painel de detalhes e exportação progressiva CSV/XLSX em
 worker; datas e decimais preservam seus tipos no XLSX e prefixos de fórmula, inclusive caracteres
 de controle e variantes Unicode, são neutralizados. Operações de escrita continuam fora da
@@ -53,8 +56,13 @@ A Fase 8 acrescenta consultas somente leitura de NF-e de saída, entradas de for
 PDV/NFC-e. Cabeçalhos, itens e pagamentos usam os relacionamentos comprovados no snapshot real,
 exigem ao menos um filtro e exibem códigos de status exatamente como armazenados, sem inferir
 significados fiscais ou operacionais. Datas são informadas e exibidas como `DD/MM/AAAA`.
-Quando existem mais de 500 linhas, a consulta e o nome da exportação avisam explicitamente que
-o resultado é parcial e solicitam filtros mais específicos.
+Os templates padrão não aplicam corte fixo de registros: consultas extensas continuam sendo
+lidas com `fetchmany`, gravadas no cache paginado e exportadas progressivamente. Filtros
+obrigatórios permanecem ativos nas áreas operacionais, financeiras e de permissões. O cache
+preserva uma reserva de 256 MB no disco e encerra a consulta com orientação específica antes
+de consumir esse espaço. Resultados interrompidos que já possuam linhas são identificados como
+parciais em tela, no histórico e no nome da exportação. Arquivos XLSX maiores que o limite de
+1.048.576 linhas do Excel são divididos automaticamente em abas sucessivas.
 
 A Fase 9 acrescenta consultas somente leitura de contas a receber, contas a pagar, caixa diário,
 transferências, tipos de venda/pagamento e diagnóstico de permissões por usuário, grupo e

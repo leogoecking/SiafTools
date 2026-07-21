@@ -21,6 +21,8 @@ def test_phase_seven_templates_are_read_only_and_declare_exact_dependencies():
         assert {name.casefold() for name in validation.relation_names} == {
             name.casefold() for name in template.required_tables
         }
+        assert "FIRST 500" not in template.sql_template
+        assert template.result_limit is None
 
 
 def test_phase_seven_optional_filters_bind_blank_values_as_null():

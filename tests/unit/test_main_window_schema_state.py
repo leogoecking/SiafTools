@@ -7,8 +7,9 @@ from siaf_support_toolbox.services.connection_service import (
     ConnectionTarget,
     SessionCredentials,
 )
+from siaf_support_toolbox.services.query_execution_service import QueryExecutionEstimate
 from siaf_support_toolbox.ui import main_window
-from siaf_support_toolbox.ui.main_window import MainWindow
+from siaf_support_toolbox.ui.main_window import MainWindow, _query_progress_message
 
 
 class FakeEnvironmentPage:
@@ -86,3 +87,26 @@ def test_new_connection_validation_invalidates_previous_summary(monkeypatch):
         "manual": False,
     }
     assert fake_window._connection_thread.started
+
+
+def test_query_progress_message_shows_historical_completion_estimate():
+    message = _query_progress_message(
+        2_000,
+        100,
+        QueryExecutionEstimate(
+            duration_ms=10_000,
+            expected_records=500,
+            sample_count=3,
+        ),
+    )
+
+    assert "Conclusão estimada às" in message
+    assert "baseado em 3 execução(ões)" in message
+    assert "Você pode cancelar" in message
+
+
+def test_query_progress_message_is_honest_without_history():
+    message = _query_progress_message(2_000, 0, None)
+
+    assert "não há histórico suficiente" in message
+    assert "cancelar a qualquer momento" in message

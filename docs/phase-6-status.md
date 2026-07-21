@@ -47,11 +47,14 @@ parametrizada de relações retornaram dados na interface. Essa prova confirma o
 UI → serviço → validação de esquema → executor Firebird read-only → cache paginado.
 
 O bloqueio de comandos destrutivos, o processamento de consultas grandes sem ocupar a thread do
-Tk e o cancelamento entre lotes permanecem cobertos pela suíte automatizada. Como limitação
-conhecida, o cancelamento não interrompe uma instrução enquanto o servidor ainda prepara o
-primeiro lote; ele passa a valer assim que o controle retorna ao worker.
+Tk e o cancelamento permanecem cobertos pela suíte automatizada. A estabilização posterior
+passou a usar `fb_cancel_operation` para interromper também a preparação do primeiro lote na DLL
+Firebird 2.5; se a API não existir, a verificação entre lotes continua como fallback.
 
 ## Correções após a conclusão
+
+- A tela apresenta uma previsão de conclusão baseada nas execuções completas recentes do mesmo
+  template e base, sem criar estimativas quando ainda não há histórico suficiente.
 
 - O analisador agora extrai relações de `FROM`, `JOIN`, CTEs e junções por vírgula, ignora aliases
   de CTE e exige correspondência exata com `required_tables` antes da validação do snapshot.

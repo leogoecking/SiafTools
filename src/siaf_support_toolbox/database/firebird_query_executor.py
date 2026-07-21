@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 import time
 from collections.abc import Callable
 from contextlib import suppress
@@ -40,6 +41,7 @@ def execute_query_read_only(
     parameters: tuple[object, ...],
     on_batch: Callable[[tuple[tuple[object, ...], ...]], None],
     cancel_event: Event,
+    on_progress: Callable[[int, int], None] | None = None,
     charset: str = "WIN1252",
     host: str | None = None,
     port: int | None = None,
@@ -76,6 +78,8 @@ def execute_query_read_only(
 
     connection = None
     cursor = None
+    cancel_watcher = None
+    query_finished = Event()
     records = 0
     columns: tuple[str, ...] = ()
     try:
@@ -105,6 +109,13 @@ def execute_query_read_only(
             return QueryExecutionResult(False, canceled=True, duration_ms=_elapsed(started))
 
         cursor = connection.cursor()
+        cancel_watcher = threading.Thread(
+            target=_watch_for_cancel,
+            args=(fdb, connection, cancel_event, query_finished),
+            name="firebird-query-cancel",
+            daemon=True,
+        )
+        cancel_watcher.start()
         cursor.execute(validation.compiled_sql, parameters)
         columns = tuple(str(item[0]).strip() for item in (cursor.description or ()))
         while not cancel_event.is_set():
@@ -112,8 +123,30 @@ def execute_query_read_only(
             if not raw_batch:
                 break
             batch = tuple(tuple(row) for row in raw_batch)
-            on_batch(batch)
+            try:
+                on_batch(batch)
+            except Exception as exc:
+                error_code = str(
+                    getattr(exc, "error_code", "query_result_processing_failed")
+                )
+                message = str(
+                    getattr(
+                        exc,
+                        "user_message",
+                        "Não foi possível armazenar o resultado temporário da consulta",
+                    )
+                )
+                return QueryExecutionResult(
+                    False,
+                    columns,
+                    records,
+                    _elapsed(started),
+                    error_code=error_code,
+                    message=message,
+                )
             records += len(batch)
+            if on_progress is not None:
+                on_progress(records, _elapsed(started))
         connection.rollback()
         if cancel_event.is_set():
             return QueryExecutionResult(
@@ -127,6 +160,16 @@ def execute_query_read_only(
             )
         return QueryExecutionResult(True, columns, records, _elapsed(started))
     except Exception as exc:
+        if cancel_event.is_set():
+            return QueryExecutionResult(
+                False,
+                columns,
+                records,
+                _elapsed(started),
+                canceled=True,
+                error_code="canceled",
+                message="Consulta cancelada pelo usuário",
+            )
         return QueryExecutionResult(
             False,
             columns,
@@ -136,6 +179,9 @@ def execute_query_read_only(
             message=translate_connection_error(exc),
         )
     finally:
+        query_finished.set()
+        if cancel_watcher is not None:
+            cancel_watcher.join(timeout=0.2)
         if cursor is not None:
             with suppress(Exception):
                 cursor.close()
@@ -166,4 +212,42 @@ def _port_reachable(host: str, port: int, timeout: float) -> bool:
         with socket.create_connection((host, port), timeout=max(0.1, timeout)):
             return True
     except OSError:
+        return False
+
+
+def _watch_for_cancel(
+    fdb_module: object,
+    connection: object,
+    cancel_event: Event,
+    query_finished: Event,
+) -> None:
+    """Interrompe a chamada Firebird ativa sem compartilhar a conexão para consultas."""
+    while not query_finished.is_set():
+        if cancel_event.wait(0.05):
+            if not query_finished.is_set():
+                _request_native_cancel(fdb_module, connection)
+            return
+
+
+def _request_native_cancel(fdb_module: object, connection: object) -> bool:
+    """Solicita `fb_cancel_operation` quando a DLL Firebird oferece essa API."""
+    try:
+        from ctypes import POINTER, c_ushort
+
+        ibase = fdb_module.ibase  # type: ignore[attr-defined]
+        api = fdb_module.load_api()  # type: ignore[attr-defined]
+        function = getattr(api.client_library, "fb_cancel_operation", None)
+        database_handle = getattr(connection, "_db_handle", None)
+        if function is None or database_handle is None:
+            return False
+        function.restype = ibase.ISC_STATUS
+        function.argtypes = [
+            POINTER(ibase.ISC_STATUS),
+            POINTER(ibase.isc_db_handle),
+            c_ushort,
+        ]
+        status = ibase.ISC_STATUS_ARRAY()
+        function(status, database_handle, c_ushort(ibase.fb_cancel_raise))
+        return True
+    except Exception:
         return False

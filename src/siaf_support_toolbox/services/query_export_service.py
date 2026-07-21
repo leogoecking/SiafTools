@@ -36,6 +36,7 @@ _UNSAFE_FORMULA_PREFIXES = (
 )
 _INVALID_FILENAME = re.compile(r"[^0-9A-Za-zÀ-ÿ._-]+")
 _ILLEGAL_XLSX_CHARACTERS = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
+_XLSX_MAX_ROWS = 1_048_576
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,7 +146,41 @@ def _write_xlsx(
     on_progress: Callable[[int], None] | None,
 ) -> int:
     workbook = Workbook(write_only=True)
-    worksheet = workbook.create_sheet("Dados")
+    sheet_number = 1
+    worksheet = _create_xlsx_sheet(workbook, columns, sheet_number)
+    rows_on_sheet = 0
+
+    processed = 0
+    try:
+        for batch in batches:
+            if cancel_event.is_set():
+                break
+            for row in batch:
+                if cancel_event.is_set():
+                    break
+                if rows_on_sheet >= _XLSX_MAX_ROWS - 1:
+                    _finalize_xlsx_sheet(worksheet, columns, rows_on_sheet)
+                    sheet_number += 1
+                    worksheet = _create_xlsx_sheet(workbook, columns, sheet_number)
+                    rows_on_sheet = 0
+                worksheet.append([_safe_xlsx_cell(worksheet, value) for value in row])
+                rows_on_sheet += 1
+                processed += 1
+            if on_progress is not None:
+                on_progress(processed)
+        if not cancel_event.is_set():
+            _finalize_xlsx_sheet(worksheet, columns, rows_on_sheet)
+            workbook.save(path)
+    finally:
+        workbook.close()
+    return processed
+
+
+def _create_xlsx_sheet(
+    workbook: Workbook, columns: tuple[str, ...], sheet_number: int
+) -> object:
+    title = "Dados" if sheet_number == 1 else f"Dados {sheet_number}"
+    worksheet = workbook.create_sheet(title)
     worksheet.freeze_panes = "A2"
     header = []
     for label in columns:
@@ -155,24 +190,14 @@ def _write_xlsx(
     worksheet.append(header)
     for index in range(1, len(columns) + 1):
         worksheet.column_dimensions[get_column_letter(index)].width = 18
+    return worksheet
 
-    processed = 0
-    try:
-        for batch in batches:
-            if cancel_event.is_set():
-                break
-            for row in batch:
-                worksheet.append([_safe_xlsx_cell(worksheet, value) for value in row])
-            processed += len(batch)
-            if on_progress is not None:
-                on_progress(processed)
-        if not cancel_event.is_set():
-            final_column = get_column_letter(max(1, len(columns)))
-            worksheet.auto_filter.ref = f"A1:{final_column}{processed + 1}"
-            workbook.save(path)
-    finally:
-        workbook.close()
-    return processed
+
+def _finalize_xlsx_sheet(
+    worksheet: object, columns: tuple[str, ...], data_rows: int
+) -> None:
+    final_column = get_column_letter(max(1, len(columns)))
+    worksheet.auto_filter.ref = f"A1:{final_column}{data_rows + 1}"
 
 
 def _safe_cell(value: object) -> object:

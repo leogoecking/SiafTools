@@ -101,8 +101,8 @@ def main() -> int:
         and len(parameter_rows) == 4
         and "exige ao menos um filtro" in window.query_page.description.cget("text")
     )
-    phase_eight_limits_persisted = all(
-        template.result_limit == 500
+    phase_eight_unlimited_results = all(
+        template.result_limit is None
         for template in window.query_page._templates
         if template.module in {"Fiscal", "Entradas", "PDV"}
     )
@@ -113,16 +113,14 @@ def main() -> int:
     )
     phase_nine_templates_ready = (
         len(phase_nine_templates) == 10
-        and all(
-            template.result_limit is None
-            if template.name == "Permissões — diagnóstico por usuário, grupo e programa"
-            else template.result_limit == 500
-            for template in phase_nine_templates
-        )
+        and all(template.result_limit is None for template in phase_nine_templates)
         and all(
             "USU_SENHA" not in template.sql_template.upper()
             for template in phase_nine_templates
         )
+    )
+    all_standard_templates_unlimited = all(
+        template.result_limit is None for template in window.query_page._templates
     )
     window.query_page.clear_results()
     stale_query_result_cleared = not window.query_page.tree.get_children()
@@ -223,8 +221,9 @@ def main() -> int:
                 "selected_details_rendered": selected_details_rendered,
                 "export_actions_enabled": export_actions_enabled,
                 "operational_filters_compact": operational_filters_compact,
-                "phase_eight_limits_persisted": phase_eight_limits_persisted,
+                "phase_eight_unlimited_results": phase_eight_unlimited_results,
                 "phase_nine_templates_ready": phase_nine_templates_ready,
+                "all_standard_templates_unlimited": all_standard_templates_unlimited,
                 "stale_export_actions_disabled": stale_export_actions_disabled,
                 "stale_output_file_cleared": stale_output_file_cleared,
                 "stale_header_cleared": stale_header_cleared,

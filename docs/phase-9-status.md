@@ -28,15 +28,12 @@ Nenhum SQL seleciona `DSIAF050.USU_SENHA`.
 7. **Tipos de pagamento:** código ou descrição.
 8. **Usuários e grupos:** usuário, nome, grupo ou descrição do grupo.
 9. **Permissões — diagnóstico por usuário, grupo e programa:** usuário, grupo, descrição,
-   módulo ou índice do programa, sem corte fixo de registros.
+   módulo ou índice do programa.
 10. **Permissões — catálogo de programas:** descrição ou módulo.
 
-Cada template exige ao menos um filtro. Os templates financeiros e os demais templates de
-permissões buscam uma linha de controle além do limite e apresentam no máximo 500 registros;
-se houver mais dados, a interface e a exportação identificam o resultado como parcial. O
-diagnóstico por usuário, grupo e programa não possui corte fixo: ele continua usando leitura em
-lotes, cache paginado e exportação progressiva. Datas usam `DD/MM/AAAA` e aceitam períodos
-longos sem limite artificial.
+Cada template exige ao menos um filtro e retorna todo o conjunto correspondente, sem corte fixo.
+Resultados extensos continuam usando leitura em lotes, cache paginado e exportação progressiva.
+Datas usam `DD/MM/AAAA` e aceitam períodos longos sem limite artificial.
 
 Permissões e indicadores financeiros são apresentados exatamente como armazenados. A ferramenta
 não converte valores em “permitido”, “negado”, “aberto”, “pago” ou outra regra de negócio que
@@ -49,28 +46,38 @@ ainda não tenha sido conferida no SIAF.
   sem multiplicá-la por todos os usuários pertencentes ao grupo.
 - `DSIAF016.PRA_COD` é apresentado como `PRA_COD`; o significado funcional desse campo não é
   inferido pela ferramenta.
-- A migration 6 registra no histórico se a consulta foi truncada pelo limite de 500 linhas.
+- A migration 6 mantém no histórico a informação de truncamento para templates configuráveis
+  que eventualmente adotem um limite próprio.
 - Espaços nas extremidades dos filtros são removidos na interface e novamente no serviço.
   Valores contendo apenas espaços não satisfazem a exigência de filtro.
-- Após a homologação por grupo, o limite fixo de 500 registros foi removido somente do
-  diagnóstico de permissões; filtros continuam obrigatórios.
+- Após a homologação dos relatórios, o limite fixo foi removido de todos os templates padrão;
+  filtros continuam obrigatórios.
+- O cache temporário verifica o espaço livre antes de criar e gravar cada lote, preserva uma
+  reserva de 256 MB e apresenta uma mensagem própria de falta de espaço em vez de atribuir a
+  falha à conexão Firebird.
+- Resultados cancelados após o recebimento de linhas são marcados como parciais e nunca são
+  apresentados ou exportados como conjuntos completos.
+- O XLSX divide volumes acima da capacidade de uma planilha em abas sucessivas.
+- A interface estima a conclusão pela mediana de até cinco execuções completas do mesmo
+  template e base. O botão de cancelamento solicita `fb_cancel_operation`, interrompendo também
+  execução ou ordenação anterior ao primeiro lote quando a DLL Firebird 2.5 oferece essa API.
 
 ## Validação automatizada inicial
 
-- Ruff e 182 testes automatizados aprovados.
+- Ruff e 194 testes automatizados aprovados.
 - Dez templates e onze relações previstas cobertas.
 - SQLs aceitos pelo validador somente leitura, com dependências extraídas iguais às declaradas.
 - Regressões cobrem filtro obrigatório, normalização de espaços, datas brasileiras sem limite
-  de duração, limite de resultado, histórico de truncamento, cardinalidade das permissões,
-  rótulo neutro de `PRA_COD` e ausência do campo de senha.
-- O smoke da interface percorreu as onze páginas, carregou 22 templates no total, confirmou o
-  diagnóstico de permissões sem limite e preservou o teto de 500 nos outros nove templates da
-  Fase 9.
+  de duração, resultados acima de 500 linhas, cardinalidade das permissões, rótulo neutro de
+  `PRA_COD` e ausência do campo de senha.
+- O smoke da interface percorreu as onze páginas, carregou 22 templates no total e confirmou
+  todos os templates padrão sem corte fixo.
 - Build PyInstaller com Python 3.11.9 x86 aprovado. O executável abriu, aplicou migration 6,
-  persistiu os 22 templates, manteve zero referências a `USU_SENHA`, deixou `errors.log` vazio e
-  foi fechado sem instâncias duplicadas.
+  persistiu os 22 templates sem limite, atualizou corretamente um SQLite que ainda possuía os
+  limites antigos, manteve zero referências a `USU_SENHA`, deixou `errors.log` vazio e foi
+  fechado sem instâncias duplicadas.
 - Artefato: `dist/SIAFSupportToolbox/SIAFSupportToolbox.exe`.
-- SHA-256: `8048CA86BDC4D1D0AD836D6147D8B852AD93DE1AA11A01ADDB893A25F1A197B9`.
+- SHA-256: `49506B08B5CFF8E07F56A2994121ECD27B9052F2B9FE1573E66AEAE7F8DF12F6`.
 
 ## Homologação de campo pendente
 

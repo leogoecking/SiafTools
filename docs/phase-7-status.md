@@ -15,7 +15,8 @@ estrutural completo das fases anteriores.
 As tabelas e cada campo selecionado foram conferidos no snapshot real da `SIAFLOJA.FDB`
 inspecionado em 2026-07-19. Antes de executar um template, o serviço compara suas dependências
 com o SQL e com esse cache; ausência ou divergência bloqueia a consulta antes de abrir o
-Firebird. Cada busca retorna no máximo 500 registros e usa parâmetros vinculados.
+Firebird. Cada busca usa parâmetros vinculados e retorna todo o conjunto correspondente; a
+leitura continua em lotes e a interface permanece paginada.
 
 ## Interface e exportação
 
@@ -27,6 +28,8 @@ Firebird. Cada busca retorna no máximo 500 registros e usa parâmetros vinculad
 - CSV usa UTF-8 com BOM e separador ponto e vírgula.
 - XLSX usa o modo de escrita progressiva do `openpyxl`, cabeçalho em negrito, primeira linha
   congelada e um único filtro de planilha.
+- Quando um resultado ultrapassa 1.048.575 linhas de dados, o XLSX abre abas `Dados 2`,
+  `Dados 3` e seguintes, repetindo cabeçalho e filtro sem exceder o limite do Excel.
 - Nomes de arquivo são exclusivos e a publicação é atômica. Falha ou cancelamento remove o
   arquivo parcial.
 - Textos iniciados por `=`, `+`, `-`, `@`, caracteres de controle ou variantes Unicode recebem
@@ -57,6 +60,8 @@ Firebird. Cada busca retorna no máximo 500 registros e usa parâmetros vinculad
   prefixos tradicionais.
 - O rodapé remove o caminho antigo ao iniciar outra operação e após falha ou cancelamento.
 - Um cancelamento anterior à criação das colunas não habilita nem produz exportação vazia.
+- Um cancelamento após o recebimento de linhas preserva a paginação, mas identifica o conjunto
+  como resultado parcial na interface, na auditoria e no nome da exportação.
 - O build corrigido permaneceu ativo no smoke, criou a migration 4, persistiu os cinco templates
   esperados e manteve `errors.log` vazio.
 
@@ -72,3 +77,10 @@ No computador do cliente, foram testados com sucesso:
 
 Com essa prova, a Fase 7 está concluída. Nenhuma consulta de NF-e, entrada, PDV, financeiro ou
 operação de escrita foi antecipada nesta fase.
+
+## Revisão global de resultados — 2026-07-20
+
+O corte de 500 registros foi removido também das três consultas desta fase. A regressão com 750
+linhas, a suíte com 183 testes e o smoke do executável x86 confirmaram leitura completa por
+lotes, paginação local e exportação progressiva. O build comum às Fases 7–9 possui SHA-256
+`FCD8FAAFBA27467299DAD27C24E54DA83EEF1B40EF48CC0B507742C8A0E8AE94`.

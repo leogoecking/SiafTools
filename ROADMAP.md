@@ -1266,8 +1266,11 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 > como read-only, valida uma única instrução `SELECT`/`WITH`, bloqueia comandos destrutivos,
 > confere os requisitos contra o snapshot da Fase 5 e executa em conexão própria do worker.
 > Resultados são lidos com `fetchmany(200)`, gravados em cache SQLite temporário, exibidos em
-> páginas de 100 registros e descartados ao fechar a aplicação. O cancelamento é cooperativo
-> entre lotes. Os dois templates foram executados com sucesso no ambiente real do cliente e
+> páginas de 100 registros e descartados ao fechar a aplicação. O cancelamento usa
+> `fb_cancel_operation` para interromper também a preparação do primeiro lote quando a DLL
+> Firebird oferece a API, mantendo a verificação cooperativa entre lotes como fallback. A tela
+> estima a conclusão pela mediana das execuções completas recentes do mesmo template e base.
+> Os dois templates foram executados com sucesso no ambiente real do cliente e
 > retornaram dados. A estabilização posterior passou a comparar as relações extraídas do SQL
 > com os requisitos declarados, bloquear procedures selecionáveis, preservar o SQL original na
 > persistência, limpar resultados visuais obsoletos e apagar credenciais em qualquer saída do
@@ -1317,9 +1320,10 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 > Foram adicionados sete templates somente leitura para cabeçalhos, itens e pagamentos, com
 > busca por número, chave, período, cliente, fornecedor, produto, terminal e indicadores
 > armazenados. A homologação real confirmou o retorno dos templates. A revisão final adotou
-> datas `DD/MM/AAAA`, rejeitou períodos invertidos, corrigiu o período de pagamentos, tornou
-> explícito o corte em 500 linhas e ordenou o PDV pelas chaves existentes sem alterar o banco
-> do cliente ou limitar a duração do período. Consulte `docs/phase-8-status.md`.
+> datas `DD/MM/AAAA`, rejeitou períodos invertidos, corrigiu o período de pagamentos e ordenou
+> o PDV pelas chaves existentes sem alterar o banco do cliente ou limitar a duração do período.
+> A revisão posterior removeu o corte fixo de registros; o processamento permanece progressivo.
+> Consulte `docs/phase-8-status.md`.
 
 **Entregas:**
 
@@ -1341,9 +1345,9 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 > programas e permissões. Os códigos são exibidos como armazenados e `USU_SENHA` não é
 > selecionado. A revisão pós-implementação eliminou a multiplicação de permissões por todos os
 > usuários do grupo, preservou `DSIAF016.PRA_COD` sem interpretação funcional, passou a auditar
-> resultados truncados e normalizou espaços nos filtros. Após a prova por grupo, o diagnóstico
-> de permissões passou a retornar o conjunto completo, ainda com filtro obrigatório e leitura
-> progressiva. A conclusão depende da conferência de casos reais no SIAF. Consulte
+> resultados truncados e normalizou espaços nos filtros. Após a prova dos relatórios, todos os
+> templates padrão passaram a retornar o conjunto completo, ainda com filtros obrigatórios e
+> leitura progressiva. A conclusão depende da conferência de casos reais no SIAF. Consulte
 > `docs/phase-9-status.md`.
 
 **Entregas:**

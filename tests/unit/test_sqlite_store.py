@@ -536,3 +536,44 @@ def test_schema_snapshot_replacement_is_atomic(tmp_path):
     assert [(item.object_type, item.object_name) for item in objects] == [
         ("relation", "TAB_A")
     ]
+
+
+def test_query_estimate_samples_ignore_failed_and_partial_executions(tmp_path):
+    database_file = tmp_path / "SIAFW.FDB"
+    database_file.write_bytes(b"database")
+    _database, repository = make_store(tmp_path)
+    environment_id = repository.record_discovery(
+        "SERVIDOR", make_report(str(database_file))
+    )
+    with repository.database.connect() as connection:
+        database_id = int(
+            connection.execute(
+                "SELECT id FROM discovered_databases WHERE environment_id = ?",
+                (environment_id,),
+            ).fetchone()[0]
+        )
+
+    for duration_ms, records, success, truncated in (
+        (1000, 100, True, False),
+        (2000, 200, True, False),
+        (3000, 300, False, False),
+        (4000, 400, True, True),
+    ):
+        repository.add_execution_history(
+            ExecutionRecord(
+                action_name="Produtos — busca e detalhes",
+                action_type="read_only_query",
+                started_at="2026-07-20T12:00:00+00:00",
+                success=success,
+                app_version="test",
+                environment_id=environment_id,
+                database_id=database_id,
+                records_processed=records,
+                duration_ms=duration_ms,
+                truncated=truncated,
+            )
+        )
+
+    assert repository.query_execution_samples(
+        "Produtos — busca e detalhes", database_id
+    ) == ((2000, 200), (1000, 100))

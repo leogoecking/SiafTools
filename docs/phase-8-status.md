@@ -27,10 +27,9 @@ conexão quando uma tabela ou campo não existe na base selecionada.
 6. **PDV — itens da venda:** ID do PDV, produto, barra, terminal ou período.
 7. **PDV — pagamentos da venda:** ID do PDV, tipo, TEF, terminal ou período.
 
-Cada template exige pelo menos um filtro e possui limite persistido de 500 linhas. O SQL busca
-uma linha adicional somente para detectar a existência de mais dados; a linha de controle não é
-exibida nem exportada. Quando o limite é atingido, a interface informa que o resultado é parcial,
-solicita filtros mais específicos e identifica a exportação como `RESULTADO-PARCIAL`.
+Cada template exige pelo menos um filtro e retorna todo o conjunto correspondente. O SQL não
+aplica corte fixo; resultados extensos são lidos com `fetchmany`, armazenados no cache paginado
+e exportados progressivamente, sem carregar todas as linhas na memória.
 
 Datas são informadas como `DD/MM/AAAA`, vinculadas ao driver como valores `date` e exibidas no
 mesmo formato na interface e no CSV. O XLSX mantém o tipo nativo com formatação brasileira.
@@ -55,15 +54,22 @@ atribui significado a códigos que ainda não foram homologados por regra de neg
 - Os sete SQLs foram aceitos pelo validador somente leitura e suas dependências declaradas
   correspondem exatamente às relações extraídas.
 - Todos os campos obrigatórios foram comparados com o snapshot real, sem ausências.
-- Regressões cobrem datas brasileiras, períodos invertidos ou excessivos, filtro obrigatório,
-  detecção de truncamento, período correto dos pagamentos e relações de cabeçalho/item.
+- Regressões cobrem datas brasileiras, períodos invertidos ou extensos, filtro obrigatório,
+  resultado completo, período correto dos pagamentos e relações de cabeçalho/item.
 - O smoke da interface percorre as onze páginas, confirma 12 templates persistidos, valida a
   apresentação brasileira das datas e organiza sete filtros em quatro linhas para telas menores.
 - Build PyInstaller com Python 3.11.9 x86 aprovado. O executável abriu no smoke, criou o SQLite
-  com migration 5, persistiu os 12 templates esperados e os sete limites da Fase 8, fechou sem
-  instâncias duplicadas e manteve `errors.log` vazio.
+  com migration 6, persistiu os 12 templates esperados sem corte fixo, fechou sem instâncias
+  duplicadas e manteve `errors.log` vazio.
 - Artefato: `dist/SIAFSupportToolbox/SIAFSupportToolbox.exe`.
 - SHA-256: `597B441F0A2F9926D49C0D91DDD79D2A9392F43179A1FCCF4C2A744DC9C10965`.
+
+## Revisão global de resultados — 2026-07-20
+
+O corte de 500 registros foi removido dos sete templates. A regressão com 750 linhas, a suíte
+com 183 testes e o smoke do executável x86 confirmaram leitura completa por lotes, paginação
+local e exportação progressiva. O build comum às Fases 7–9 possui SHA-256
+`FCD8FAAFBA27467299DAD27C24E54DA83EEF1B40EF48CC0B507742C8A0E8AE94`.
 
 Nenhuma rotina de correção, alteração fiscal, financeira ou de status foi liberada. A fase
 permanece estritamente somente leitura.

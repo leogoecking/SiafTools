@@ -10,6 +10,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from statistics import median
 
 from siaf_support_toolbox.core.version import __version__
 from siaf_support_toolbox.database.firebird_query_executor import (
@@ -28,7 +29,11 @@ from siaf_support_toolbox.services.query_export_service import (
     QueryExportResult,
     export_query_result,
 )
-from siaf_support_toolbox.services.query_result_store import QueryResultPage, QueryResultStore
+from siaf_support_toolbox.services.query_result_store import (
+    QueryResultPage,
+    QueryResultStorageError,
+    QueryResultStore,
+)
 from siaf_support_toolbox.services.schema_inspection_service import SchemaInspectionService
 
 LOGGER = logging.getLogger(__name__)
@@ -47,6 +52,14 @@ class QueryExecutionSummary:
     error_code: str | None = None
     message: str | None = None
     truncated: bool = False
+    partial: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class QueryExecutionEstimate:
+    duration_ms: int
+    expected_records: int
+    sample_count: int
 
 
 class _LimitedResultWriter:
@@ -97,6 +110,24 @@ class QueryExecutionService:
     def list_templates(self) -> list[QueryTemplate]:
         return self.repository.list_query_templates()
 
+    def estimate_execution(
+        self, template_id: int, database_id: int
+    ) -> QueryExecutionEstimate | None:
+        template = self.repository.query_template(template_id)
+        sample_reader = getattr(self.repository, "query_execution_samples", None)
+        if template is None or sample_reader is None:
+            return None
+        samples = tuple(sample_reader(template.name, database_id, 5))
+        if not samples:
+            return None
+        durations = tuple(max(0, int(item[0])) for item in samples)
+        record_counts = tuple(max(0, int(item[1])) for item in samples)
+        return QueryExecutionEstimate(
+            duration_ms=int(median(durations)),
+            expected_records=int(median(record_counts)),
+            sample_count=len(samples),
+        )
+
     def execute(
         self,
         *,
@@ -106,6 +137,7 @@ class QueryExecutionService:
         credentials: SessionCredentials,
         parameters: dict[str, object],
         cancel_event: threading.Event,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> QueryExecutionSummary:
         try:
             return self._execute(
@@ -115,6 +147,7 @@ class QueryExecutionService:
                 credentials=credentials,
                 parameters=parameters,
                 cancel_event=cancel_event,
+                on_progress=on_progress,
             )
         finally:
             credentials.clear()
@@ -128,6 +161,7 @@ class QueryExecutionService:
         credentials: SessionCredentials,
         parameters: dict[str, object],
         cancel_event: threading.Event,
+        on_progress: Callable[[int, int], None] | None,
     ) -> QueryExecutionSummary:
         started_at = datetime.now(UTC)
         started = time.monotonic()
@@ -235,7 +269,19 @@ class QueryExecutionService:
                 str(exc),
             )
 
-        store = QueryResultStore(self.cache_directory)
+        try:
+            store = QueryResultStore(self.cache_directory)
+        except QueryResultStorageError as exc:
+            return self._blocked(
+                template_id,
+                template.name,
+                target,
+                database_id,
+                started_at,
+                started,
+                exc.error_code,
+                exc.user_message,
+            )
         writer = _LimitedResultWriter(store, template.result_limit)
         try:
             result = self._executor(
@@ -251,6 +297,7 @@ class QueryExecutionService:
                 parameters=bound_parameters,
                 on_batch=writer.append_batch,
                 cancel_event=cancel_event,
+                on_progress=on_progress,
                 batch_size=200,
             )
         except Exception:
@@ -286,7 +333,8 @@ class QueryExecutionService:
             canceled=result.canceled,
             error_code=result.error_code,
             message=result.message,
-            truncated=result.success and writer.truncated,
+            truncated=writer.truncated,
+            partial=writer.truncated or (result.canceled and writer.records_stored > 0),
         )
         try:
             self._record(summary, target, database_id, started_at)
@@ -385,7 +433,7 @@ class QueryExecutionService:
                 finished_at=datetime.now(UTC).isoformat(timespec="seconds"),
                 success=summary.success,
                 records_processed=summary.records_processed,
-                truncated=summary.truncated,
+                truncated=summary.partial,
                 duration_ms=summary.duration_ms,
                 error_code=summary.error_code,
                 error_message=summary.message,
@@ -502,11 +550,11 @@ def _phase_seven_templates() -> tuple[QueryTemplate, ...]:
             name="Produtos — busca e detalhes",
             module="Cadastros",
             description=(
-                "Pesquisa até 500 produtos por código, nome, código de barras, referência "
+                "Pesquisa produtos por código, nome, código de barras, referência "
                 "e fornecedor vinculado."
             ),
             sql_template="""
-                SELECT FIRST 500
+                SELECT
                     P.PRO_COD AS CODIGO,
                     P.PRO_NOME AS NOME,
                     P.PRO_BARRA AS CODIGO_BARRAS,
@@ -564,9 +612,9 @@ def _phase_seven_templates() -> tuple[QueryTemplate, ...]:
         QueryTemplate(
             name="Clientes — busca e detalhes",
             module="Cadastros",
-            description="Pesquisa até 500 clientes por código, nome ou CPF/CNPJ.",
+            description="Pesquisa clientes por código, nome ou CPF/CNPJ.",
             sql_template="""
-                SELECT FIRST 500
+                SELECT
                     C.CLI_COD AS CODIGO,
                     C.CLI_NOME AS NOME,
                     C.CLI_FANT AS FANTASIA,
@@ -624,9 +672,9 @@ def _phase_seven_templates() -> tuple[QueryTemplate, ...]:
         QueryTemplate(
             name="Fornecedores — busca e detalhes",
             module="Cadastros",
-            description="Pesquisa até 500 fornecedores por código, nome, razão ou CPF/CNPJ.",
+            description="Pesquisa fornecedores por código, nome, razão ou CPF/CNPJ.",
             sql_template="""
-                SELECT FIRST 500
+                SELECT
                     F.FOR_COD AS CODIGO,
                     F.FOR_NOME AS NOME,
                     F.FOR_RAZAO AS RAZAO_SOCIAL,
@@ -688,11 +736,11 @@ def _phase_eight_templates() -> tuple[QueryTemplate, ...]:
             name="NF-e — saídas e indicadores",
             module="Fiscal",
             description=(
-                "Pesquisa até 500 notas de saída por série, número, chave, cliente ou período; "
+                "Pesquisa notas de saída por série, número, chave, cliente ou período; "
                 "os códigos de situação são exibidos sem interpretação automática."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     N.SAI_SER AS SERIE,
                     N.SAI_PED AS NUMERO,
                     N.SAI_DATA AS DATA,
@@ -765,16 +813,16 @@ def _phase_eight_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="NF-e — itens da saída",
             module="Fiscal",
             description=(
-                "Pesquisa até 500 itens de saída vinculados ao cabeçalho real por série e número."
+                "Pesquisa itens de saída vinculados ao cabeçalho real por série e número."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     I.SAI_SER AS SERIE,
                     I.SAI_PED AS NUMERO,
                     N.SAI_DATA AS DATA,
@@ -854,16 +902,16 @@ def _phase_eight_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Entradas — notas de fornecedor",
             module="Entradas",
             description=(
-                "Pesquisa até 500 entradas por nota, fornecedor, série, chave ou período."
+                "Pesquisa entradas por nota, fornecedor, série, chave ou período."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     E.ENT_NOTA AS NOTA,
                     E.FOR_COD AS FORNECEDOR_CODIGO,
                     E.ENT_SER AS SERIE,
@@ -918,16 +966,16 @@ def _phase_eight_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Entradas — itens da nota",
             module="Entradas",
             description=(
-                "Pesquisa até 500 itens vinculados à entrada por nota e fornecedor."
+                "Pesquisa itens vinculados à entrada por nota e fornecedor."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     I.ENT_NOTA AS NOTA,
                     I.FOR_COD AS FORNECEDOR_CODIGO,
                     E.ENT_SER AS SERIE,
@@ -1001,17 +1049,17 @@ def _phase_eight_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="PDV — vendas e NFC-e",
             module="PDV",
             description=(
-                "Pesquisa até 500 vendas de PDV por ID, chave, cliente, terminal, "
+                "Pesquisa vendas de PDV por ID, chave, cliente, terminal, "
                 "status ou período."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     V.ID AS PDV_ID,
                     V.PDV_DATA AS DATA,
                     V.PDV_HORA AS HORA,
@@ -1090,14 +1138,14 @@ def _phase_eight_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="PDV — itens da venda",
             module="PDV",
-            description="Pesquisa até 500 itens vinculados ao cabeçalho do PDV por ID/PDV_COD.",
+            description="Pesquisa itens vinculados ao cabeçalho do PDV por ID/PDV_COD.",
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     V.ID AS PDV_ID,
                     V.PDV_DATA AS DATA,
                     V.PDV_HORA AS HORA,
@@ -1176,16 +1224,16 @@ def _phase_eight_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="PDV — pagamentos da venda",
             module="PDV",
             description=(
-                "Pesquisa até 500 registros financeiros vinculados ao PDV por ID/PDV_COD."
+                "Pesquisa registros financeiros vinculados ao PDV por ID/PDV_COD."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     V.ID AS PDV_ID,
                     V.PDV_DATA AS DATA_VENDA,
                     V.TERMINAL AS TERMINAL,
@@ -1268,7 +1316,7 @@ def _phase_eight_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=source,
-            result_limit=500,
+            result_limit=None,
         ),
     )
 
@@ -1281,11 +1329,11 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             name="Contas a receber — títulos e baixas",
             module="Financeiro",
             description=(
-                "Pesquisa até 500 títulos a receber pelos valores armazenados, sem inferir "
+                "Pesquisa títulos a receber pelos valores armazenados, sem inferir "
                 "situação financeira automaticamente."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     R.REC_DUP AS DUPLICATA,
                     R.REC_BAN AS BANCO_DOCUMENTO,
                     R.CLI_COD AS CLIENTE_CODIGO,
@@ -1362,17 +1410,17 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=loja_source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Contas a pagar — títulos e baixas",
             module="Financeiro",
             description=(
-                "Pesquisa até 500 títulos a pagar pelos valores armazenados, sem inferir "
+                "Pesquisa títulos a pagar pelos valores armazenados, sem inferir "
                 "situação financeira automaticamente."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     P.PAG_NUM AS PAGAMENTO_NUMERO,
                     P.PAG_DUP AS DUPLICATA,
                     P.PAG_TIPO AS TIPO_REGISTRO,
@@ -1441,14 +1489,14 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=loja_source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Caixa diário — cabeçalhos",
             module="Caixa",
-            description="Pesquisa até 500 posições diárias de caixa por caixa, turno ou período.",
+            description="Pesquisa posições diárias de caixa por caixa, turno ou período.",
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     C.CAI_DATA AS DATA,
                     C.CAI_COD AS CAIXA,
                     C.CAI_TURNO AS TURNO,
@@ -1487,16 +1535,16 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=loja_source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Caixa diário — lançamentos",
             module="Caixa",
             description=(
-                "Pesquisa até 500 lançamentos de caixa e exibe seus vínculos armazenados."
+                "Pesquisa lançamentos de caixa e exibe seus vínculos armazenados."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     L.CAI_DATA AS DATA,
                     L.CAI_COD AS CAIXA,
                     L.CAI_TURNO AS TURNO,
@@ -1559,16 +1607,16 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=loja_source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Caixa diário — transferências",
             module="Caixa",
             description=(
-                "Pesquisa até 500 transferências entre caixas pelos valores armazenados."
+                "Pesquisa transferências entre caixas pelos valores armazenados."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     T.TRANS_COD AS TRANSFERENCIA,
                     T.CAI_COD AS CAIXA_ORIGEM,
                     T.CAI_DATA AS DATA_ORIGEM,
@@ -1619,7 +1667,7 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=loja_source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Tipos de venda",
@@ -1628,7 +1676,7 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
                 "Pesquisa os tipos de venda e mostra o tipo de pagamento vinculado quando existe."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     V.PRA_COD AS TIPO_VENDA_CODIGO,
                     V.PRA_DESC AS TIPO_VENDA_DESCRICAO,
                     V.PRA_PRES AS PRESTACOES,
@@ -1695,7 +1743,7 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=loja_source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Tipos de pagamento",
@@ -1704,7 +1752,7 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
                 "Pesquisa o cadastro completo de tipos de pagamento pelos valores armazenados."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     P.TIP_COD AS TIPO_PAGAMENTO_CODIGO,
                     P.TIP_DESC AS TIPO_PAGAMENTO_DESCRICAO,
                     P.TIP_REC AS RECEBIMENTO,
@@ -1757,7 +1805,7 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=loja_source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Usuários e grupos",
@@ -1766,7 +1814,7 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
                 "Pesquisa usuários e seus grupos sem selecionar ou expor o campo de senha."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     U.USU_COD AS USUARIO_CODIGO,
                     U.USU_NOME AS USUARIO_NOME,
                     U.GRU_USU AS GRUPO_CODIGO,
@@ -1804,7 +1852,7 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=siafw_source,
-            result_limit=500,
+            result_limit=None,
         ),
         QueryTemplate(
             name="Permissões — diagnóstico por usuário, grupo e programa",
@@ -1881,7 +1929,7 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
                 "Pesquisa o catálogo real de programas por descrição ou módulo armazenado."
             ),
             sql_template="""
-                SELECT FIRST 501
+                SELECT
                     C.PROG_DESC AS PROGRAMA_DESCRICAO,
                     C.PROG_MOD AS PROGRAMA_MODULO
                 FROM DSIAF052 C
@@ -1899,7 +1947,7 @@ def _phase_nine_templates() -> tuple[QueryTemplate, ...]:
             risk_level="baixo",
             version="1.0",
             source_reference=siafw_source,
-            result_limit=500,
+            result_limit=None,
         ),
     )
 

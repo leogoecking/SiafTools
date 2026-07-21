@@ -212,6 +212,16 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 - O novo build x86 confirmou `result_limit` nulo e ausência de `FIRST 501` somente nesse
   diagnóstico, manteve limite nos outros nove templates da Fase 9, migration 6 e `errors.log`
   vazio. SHA-256: `8048CA86BDC4D1D0AD836D6147D8B852AD93DE1AA11A01ADDB893A25F1A197B9`.
+- Após a validação de que outros relatórios podiam omitir linhas sem aviso consistente, todos os
+  templates padrão deixaram de usar `FIRST 500/FIRST 501` e `result_limit`. Consultas extensas
+  agora retornam o conjunto completo por `fetchmany`, cache paginado e exportação progressiva;
+  filtros obrigatórios e cancelamento cooperativo foram preservados.
+- Uma regressão com 750 linhas e o smoke de persistência dos 22 templates elevam a suíte para
+  183 testes e comprovam que a remoção do corte não descarta dados no cache paginado.
+- O build x86 abriu em perfil novo e sobre um SQLite simulado com os 22 limites antigos; em
+  ambos persistiu zero limites e zero cláusulas `FIRST 500/501`, manteve migration 6,
+  `errors.log` vazio e nenhuma instância restante. SHA-256:
+  `FCD8FAAFBA27467299DAD27C24E54DA83EEF1B40EF48CC0B507742C8A0E8AE94`.
 - Revisão final aprovada com 172 testes, Ruff, smoke das onze páginas e build PyInstaller
   Python 3.11.9 x86; o executável aplicou migration 5, carregou 12 templates, manteve
   `errors.log` vazio e foi fechado sem instâncias duplicadas. SHA-256:
@@ -221,8 +231,8 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 
 - Terminal remoto e matriz ampliada Windows 10/11 permanecem como homologação de campo no
   computador do cliente.
-- O cancelamento é cooperativo entre lotes e não interrompe o tempo de preparação do primeiro
-  lote dentro do servidor Firebird.
+- Se uma DLL Firebird não expuser `fb_cancel_operation`, o cancelamento volta ao modo
+  cooperativo entre lotes; a interface permanece responsiva e informa a solicitação.
 
 ### Corrigido após a Fase 0
 
@@ -320,3 +330,19 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
   1.352 objetos foram preservados, a integridade permaneceu válida e nenhum snapshot antigo
   foi marcado como completo.
 - Oito regressões ampliam a suíte para 122 testes automatizados.
+
+### Corrigido após a remoção dos limites fixos de consulta
+
+- Consultas canceladas após receber registros passam a marcar o cache, a auditoria e a
+  exportação como resultado parcial.
+- O cache temporário preserva 256 MB livres, detecta falta de espaço antes de cada lote e não
+  converte falhas SQLite em mensagens incorretas de conexão Firebird.
+- A exportação XLSX divide automaticamente conjuntos acima de 1.048.575 registros em abas
+  sucessivas, repetindo cabeçalho, filtro e congelamento.
+- Consultas longas mostram previsão de conclusão baseada nas cinco execuções completas mais
+  recentes do mesmo template e base.
+- O cancelamento usa a API nativa `fb_cancel_operation` do Firebird 2.5 para interromper também
+  execução e ordenação anteriores ao primeiro lote, com fallback cooperativo quando necessário.
+- Onze regressões ampliam a suíte para 194 testes automatizados; Ruff permanece aprovado.
+- Executável x86 reconstruído e aprovado em perfil isolado: migration 6, 22 templates sem
+  limite, integridade SQLite válida, `errors.log` vazio e nenhum processo remanescente.

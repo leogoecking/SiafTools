@@ -8,6 +8,7 @@ from decimal import Decimal
 import pytest
 from openpyxl import load_workbook
 
+from siaf_support_toolbox.services import query_export_service
 from siaf_support_toolbox.services.query_export_service import export_query_result
 from siaf_support_toolbox.services.query_result_store import QueryResultStore
 
@@ -151,3 +152,27 @@ def test_canceled_export_removes_partial_file(tmp_path):
     assert result.canceled
     assert result.records_processed == 1
     assert not tuple(tmp_path.iterdir())
+
+
+def test_xlsx_export_splits_rows_across_excel_sized_sheets(monkeypatch, tmp_path):
+    monkeypatch.setattr(query_export_service, "_XLSX_MAX_ROWS", 4)
+    result = export_query_result(
+        columns=("CÓDIGO",),
+        batches=(tuple((value,) for value in range(1, 8)),),
+        output_directory=tmp_path,
+        base_name="Resultado grande",
+        file_format="xlsx",
+        cancel_event=threading.Event(),
+    )
+
+    assert result.success
+    assert result.records_processed == 7
+    assert result.output_file is not None
+    workbook = load_workbook(result.output_file, read_only=False)
+    assert workbook.sheetnames == ["Dados", "Dados 2", "Dados 3"]
+    assert tuple(workbook["Dados"].values) == (("CÓDIGO",), (1,), (2,), (3,))
+    assert tuple(workbook["Dados 2"].values) == (("CÓDIGO",), (4,), (5,), (6,))
+    assert tuple(workbook["Dados 3"].values) == (("CÓDIGO",), (7,))
+    assert workbook["Dados"].auto_filter.ref == "A1:A4"
+    assert workbook["Dados 3"].auto_filter.ref == "A1:A2"
+    workbook.close()

@@ -2,10 +2,15 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 
-from siaf_support_toolbox.services.query_result_store import QueryResultStore
+from siaf_support_toolbox.services import query_result_store
+from siaf_support_toolbox.services.query_result_store import (
+    QueryResultStorageError,
+    QueryResultStore,
+)
 from siaf_support_toolbox.ui.pages.query_page import _display_value
 
 
@@ -57,4 +62,31 @@ def test_result_store_iterates_in_bounded_batches(tmp_path):
     assert batches[-1] == ((4,),)
     with pytest.raises(ValueError, match="entre 1 e 5000"):
         tuple(store.iter_batches(5001))
+    store.close()
+
+
+def test_result_store_refuses_to_consume_disk_reserve(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        query_result_store.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=1),
+    )
+
+    with pytest.raises(QueryResultStorageError, match="espaço livre suficiente"):
+        QueryResultStore(tmp_path)
+
+    assert not tuple(tmp_path.glob("query-*.sqlite3"))
+
+
+def test_result_store_reports_space_exhaustion_during_stream(monkeypatch, tmp_path):
+    store = QueryResultStore(tmp_path)
+    monkeypatch.setattr(
+        query_result_store.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(free=1),
+    )
+
+    with pytest.raises(QueryResultStorageError, match="refine os filtros"):
+        store.append_batch(((1, "A"),))
+
     store.close()

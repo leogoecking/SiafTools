@@ -7,6 +7,7 @@ import pytest
 
 from siaf_support_toolbox.database.firebird_query_executor import QueryExecutionResult
 from siaf_support_toolbox.repositories.models import QueryTemplate
+from siaf_support_toolbox.services import query_execution_service
 from siaf_support_toolbox.services.connection_service import ConnectionTarget, SessionCredentials
 from siaf_support_toolbox.services.query_execution_service import QueryExecutionService
 
@@ -15,6 +16,7 @@ class FakeRepository:
     def __init__(self, template: QueryTemplate) -> None:
         self.template = template
         self.history = []
+        self.samples = ()
 
     def upsert_query_template(self, template: QueryTemplate) -> int:
         if self.template.id is None:
@@ -30,6 +32,9 @@ class FakeRepository:
     def add_execution_history(self, record):
         self.history.append(record)
         return len(self.history)
+
+    def query_execution_samples(self, _action_name, _database_id, _limit=5):
+        return self.samples
 
 
 class FakeSchemaInspector:
@@ -116,6 +121,36 @@ def test_service_streams_pages_records_history_and_clears_password(tmp_path):
     service.close()
 
 
+def test_service_preserves_more_than_five_hundred_rows_without_template_limit(tmp_path):
+    repository = FakeRepository(_template())
+
+    def executor(**kwargs):
+        kwargs["on_batch"](tuple((value,) for value in range(400)))
+        kwargs["on_batch"](tuple((value,) for value in range(400, 750)))
+        return QueryExecutionResult(True, ("CODIGO",), 750, 20)
+
+    service = QueryExecutionService(
+        repository, FakeSchemaInspector(), tmp_path, executor=executor
+    )
+    summary = service.execute(
+        template_id=7,
+        target=_target(),
+        database_id=3,
+        credentials=SessionCredentials("SYSDBA", "temporary"),
+        parameters={"code": "42"},
+        cancel_event=threading.Event(),
+    )
+
+    assert summary.success
+    assert summary.records_processed == 750
+    assert not summary.truncated
+    assert not repository.history[-1].truncated
+    assert service.read_page(summary.result_id, 8).rows == tuple(
+        (value,) for value in range(700, 750)
+    )
+    service.close()
+
+
 def test_service_keeps_limit_and_marks_result_as_truncated(tmp_path):
     repository = FakeRepository(
         _template("SELECT FIRST 4 :code AS CODIGO FROM RDB$DATABASE", result_limit=3)
@@ -196,6 +231,89 @@ def test_service_discards_cancelation_without_result_columns(tmp_path):
     assert summary.canceled
     assert summary.result_id is None
     assert not tuple(tmp_path.glob("query-*.sqlite3"))
+    service.close()
+
+
+def test_service_marks_canceled_rows_as_partial_and_audits_incomplete_result(tmp_path):
+    repository = FakeRepository(_template())
+
+    def executor(**kwargs):
+        kwargs["on_batch"](((1,), (2,)))
+        return QueryExecutionResult(
+            False,
+            ("CODIGO",),
+            2,
+            12,
+            canceled=True,
+            error_code="canceled",
+        )
+
+    service = QueryExecutionService(
+        repository, FakeSchemaInspector(), tmp_path, executor=executor
+    )
+    summary = service.execute(
+        template_id=7,
+        target=_target(),
+        database_id=3,
+        credentials=SessionCredentials("SYSDBA", "temporary"),
+        parameters={"code": "42"},
+        cancel_event=threading.Event(),
+    )
+
+    assert summary.canceled
+    assert summary.partial
+    assert not summary.truncated
+    assert summary.result_id is not None
+    assert repository.history[-1].truncated
+    assert service.read_page(summary.result_id, 1).rows == ((1,), (2,))
+    service.close()
+
+
+def test_service_estimates_query_from_median_of_complete_history(tmp_path):
+    repository = FakeRepository(_template())
+    repository.samples = ((1000, 100), (9000, 900), (3000, 300))
+    service = QueryExecutionService(repository, FakeSchemaInspector(), tmp_path)
+
+    estimate = service.estimate_execution(7, 3)
+
+    assert estimate is not None
+    assert estimate.duration_ms == 3000
+    assert estimate.expected_records == 300
+    assert estimate.sample_count == 3
+    service.close()
+
+
+def test_service_reports_cache_reserve_failure_without_running_firebird(
+    monkeypatch, tmp_path
+):
+    repository = FakeRepository(_template())
+    called = False
+
+    def unavailable(_directory):
+        raise query_execution_service.QueryResultStorageError
+
+    def executor(**_kwargs):
+        nonlocal called
+        called = True
+        return QueryExecutionResult(True)
+
+    monkeypatch.setattr(query_execution_service, "QueryResultStore", unavailable)
+    service = QueryExecutionService(
+        repository, FakeSchemaInspector(), tmp_path, executor=executor
+    )
+    summary = service.execute(
+        template_id=7,
+        target=_target(),
+        database_id=3,
+        credentials=SessionCredentials("SYSDBA", "temporary"),
+        parameters={"code": "42"},
+        cancel_event=threading.Event(),
+    )
+
+    assert not called
+    assert summary.error_code == "query_cache_unavailable"
+    assert "espaço livre suficiente" in (summary.message or "")
+    assert repository.history[-1].error_code == "query_cache_unavailable"
     service.close()
 
 
