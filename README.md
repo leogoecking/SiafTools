@@ -12,7 +12,8 @@ próximas ao SIAF, bibliotecas cliente Firebird, conexões TCP e candidatos limi
 
 Na página **Ambiente detectado**, o botão **Validar conexão** solicita usuário e senha apenas
 para a tentativa atual, prepara os endpoints automaticamente e classifica a base pelo catálogo
-antes de aceitá-la. A validação também exige Firebird 2.5.7 e ODS 11.2. **Opções avançadas** é
+antes de aceitá-la. A validação também exige Firebird 2.5.7 a 2.5.9 e ODS 11.2.
+**Opções avançadas** é
 um fallback para ambientes que não puderam ser resolvidos automaticamente; se outra DLL já
 estiver carregada, o aplicativo solicita uma reinicialização em vez de ignorar silenciosamente
 a biblioteca selecionada. O diagnóstico técnico pode ser exportado pela mesma página com
@@ -116,6 +117,13 @@ python -m siaf_support_toolbox
 
 A análise é executada fora da thread da interface. Falhas parciais são exibidas como avisos e
 não encerram a aplicação.
+
+Quando houver mais de uma instalação do SIAF, a página **Ambiente detectado** agrupa executável,
+arquivos de configuração e bases por pasta de instalação. A instalação em execução aparece
+primeiro; o atendente pode escolher outra instalação ou validar todas. No fluxo normal não é
+necessário informar host, porta, base ou DLL. As bibliotecas Firebird encontradas passam por um
+preflight isolado e a ferramenta prioriza automaticamente uma `fbclient.dll` x86 utilizável,
+mantendo as demais apenas como fallback seguro.
 
 ## Testes e diagnóstico
 

@@ -5,6 +5,7 @@ from siaf_support_toolbox.discovery.models import (
     DetectionIssue,
     DiscoveryReport,
     MachineMode,
+    SiafInstallationFinding,
 )
 from siaf_support_toolbox.ui.pages.environment_page import format_discovery_report
 
@@ -23,6 +24,17 @@ def test_format_discovery_report_uses_only_detected_evidence():
                 "fbclient.dll",
                 Architecture.X86,
                 True,
+                True,
+                "2.5.9.27139",
+            )
+        ],
+        installations=[
+            SiafInstallationFinding(
+                "C:/SIAFW",
+                ("C:/SIAFW/SIAFW.EXE",),
+                ("C:/SIAFW/SIAFW.FDB",),
+                active=True,
+                confidence=95,
             )
         ],
         issues=[DetectionIssue("registro", "acesso parcial")],
@@ -32,7 +44,8 @@ def test_format_discovery_report_uses_only_detected_evidence():
 
     assert "Modo da máquina: servidor_local" in text
     assert "SIAFW: C:/SIAFW/SIAFW.FDB (pontuação 90)" in text
-    assert "fbclient.dll — x86, compatível" in text
+    assert "fbclient.dll — x86, pronta para uso, versão 2.5.9.27139" in text
+    assert "C:/SIAFW — em execução, 1 base(s), confiança 95%" in text
     assert "registro: acesso parcial" in text
     assert "Portas TCP candidatas para confirmação: 4050" in text
 

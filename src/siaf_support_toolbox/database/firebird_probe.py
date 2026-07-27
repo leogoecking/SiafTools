@@ -28,7 +28,7 @@ class FirebirdProbeResult:
 
 
 _API_LOAD_LOCK = Lock()
-_SUPPORTED_FIREBIRD_VERSION = re.compile(r"(?<!\d)2\.5\.7(?:\.\d+)?(?!\d)")
+_SUPPORTED_FIREBIRD_VERSION = re.compile(r"(?<!\d)2\.5\.[7-9](?:\.\d+)?(?!\d)")
 _SUPPORTED_ODS_VERSION = re.compile(r"(?<!\d)11\.2(?!\d)")
 
 
@@ -72,17 +72,28 @@ def probe_read_only(
     cursor = None
     try:
         loaded_library = load_api_library(fdb, library_path)
-        if loaded_library is not None:
-            return FirebirdProbeResult(
-                False,
-                None,
-                None,
-                "client_library_already_loaded",
-                (
-                    "Outra DLL Firebird já está carregada nesta sessão. "
-                    "Reinicie o aplicativo para trocar a biblioteca cliente"
-                ),
-            )
+    except (AttributeError, OSError, ValueError) as exc:
+        return FirebirdProbeResult(
+            False,
+            None,
+            None,
+            "client_library_incompatible",
+            translate_client_library_error(exc),
+        )
+
+    if loaded_library is not None:
+        return FirebirdProbeResult(
+            False,
+            None,
+            None,
+            "client_library_already_loaded",
+            (
+                "Outra DLL Firebird já está carregada nesta sessão. "
+                "Reinicie o aplicativo para trocar a biblioteca cliente"
+            ),
+        )
+
+    try:
         connection = fdb.connect(dsn=dsn, user=username, password=password, charset=charset)
         read_only_tpb = getattr(fdb, "ISOLATION_LEVEL_READ_COMMITED_RO", None)
         if read_only_tpb is None:
@@ -184,6 +195,15 @@ def translate_connection_error(error: Exception) -> str:
     return "Não foi possível validar a conexão Firebird"
 
 
+def translate_client_library_error(error: Exception) -> str:
+    lowered = str(error).casefold()
+    if "fb_interpret" in lowered:
+        return "A DLL encontrada não oferece a API cliente Firebird esperada"
+    if "winerror 193" in lowered:
+        return "A DLL encontrada é incompatível com a arquitetura do aplicativo"
+    return "A DLL cliente Firebird não pôde ser carregada com segurança"
+
+
 def _port_reachable(host: str, port: int, timeout: float) -> bool:
     try:
         with socket.create_connection((host, port), timeout=max(0.1, timeout)):
@@ -209,7 +229,7 @@ def runtime_compatibility_issue(
     if not _SUPPORTED_FIREBIRD_VERSION.search(server_version):
         return (
             "unsupported_firebird_version",
-            "Apenas Firebird 2.5.7 é aceito nesta versão da ferramenta",
+            "Apenas Firebird 2.5.7 a 2.5.9 é aceito nesta versão da ferramenta",
         )
     if not ods_version:
         return ("ods_version_unconfirmed", "A versão ODS da base não pôde ser confirmada")

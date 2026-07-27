@@ -31,13 +31,15 @@ def parse_connection_references(
         occupied: list[tuple[int, int]] = []
         for match in _REMOTE_DSN.finditer(stripped):
             port = int(match.group("port") or DEFAULT_FIREBIRD_PORT)
-            if not 1 <= port <= 65535:
+            host = match.group("host")
+            database = match.group("database").strip()
+            if not 1 <= port <= 65535 or _is_false_numeric_reference(host, database):
                 continue
             findings.append(
                 ConnectionReferenceFinding(
-                    match.group("host"),
+                    host,
                     port,
-                    match.group("database").strip(),
+                    database,
                     source_file,
                 )
             )
@@ -63,6 +65,11 @@ def parse_connection_references(
         for item in findings
     }
     return list(unique.values())
+
+
+def _is_false_numeric_reference(host: str, database: str) -> bool:
+    """Descarta horários e outras duplas numéricas que coincidem com host:alias."""
+    return host.isdecimal() and database.isdecimal()
 
 
 def detect_siaf_connection_references(

@@ -5,7 +5,7 @@
 3. O fluxo principal deve descobrir automaticamente SIAF, Firebird, servidor e bases.
 4. Host, porta e caminho não são campos obrigatórios no uso normal.
 5. Configuração manual existe somente como fallback avançado.
-6. O ambiente alvo utiliza Firebird 2.5.7 de 32 bits.
+6. O ambiente alvo utiliza Firebird 2.5.7 a 2.5.9, com cliente x86/32 bits.
 7. O MVP deve ser desenvolvido e empacotado com Python x86/32 bits.
 8. Detectar e validar `fbclient.dll` ou `gds32.dll` x86.
 9. Não depender de um único nome de serviço Firebird.

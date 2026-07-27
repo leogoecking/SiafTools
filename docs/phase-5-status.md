@@ -10,7 +10,8 @@ todas as bases compatíveis da sessão.
   procedures e generators lidos diretamente do catálogo Firebird 2.5.
 - Uma conexão Firebird própria para cada base, transação read-only e rollback obrigatório.
 - Leitura de todas as consultas de catálogo em lotes de 200 registros, sem `fetchall`.
-- Validação de `fbclient.dll`/`gds32.dll` x86, Firebird 2.5.7 e ODS 11.2 antes da inspeção.
+- Validação de `fbclient.dll`/`gds32.dll` x86, Firebird 2.5.7 a 2.5.9 e ODS 11.2 antes
+  da inspeção.
 - Migration 4 para snapshots estruturais completos, mantendo e atualizando os caches das
   migrations anteriores.
 - Substituição transacional do snapshot no SQLite, preservando o cache anterior se a gravação

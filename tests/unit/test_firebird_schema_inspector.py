@@ -91,8 +91,13 @@ class FakeConnection:
         self.closed = True
 
 
-def test_inspector_reads_complete_catalog_in_batches_and_rolls_back(monkeypatch):
+@pytest.mark.parametrize(
+    "server_version",
+    ["2.5.7.27050", "2.5.8.27089", "2.5.9.27139"],
+)
+def test_inspector_reads_catalog_for_supported_runtime(monkeypatch, server_version):
     connection = FakeConnection()
+    connection.version = server_version
     fake_fdb = SimpleNamespace(
         ISOLATION_LEVEL_READ_COMMITED_RO=b"readonly",
         load_api=lambda _path: object(),

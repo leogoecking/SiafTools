@@ -4,7 +4,7 @@ import tkinter as tk
 from collections.abc import Callable
 from tkinter import ttk
 
-from siaf_support_toolbox.discovery.models import DiscoveryReport
+from siaf_support_toolbox.discovery.models import DiscoveryReport, SiafInstallationFinding
 from siaf_support_toolbox.ui.theme import ThemePalette
 
 
@@ -35,7 +35,7 @@ class EnvironmentPage(ttk.Frame):
         self.scan_button = ttk.Button(actions, text="Reanalisar", command=on_rescan)
         self.scan_button.pack(side="left", padx=2)
         self.validate_button = ttk.Button(
-            actions, text="Validar conexão", command=on_validate, state="disabled"
+            actions, text="Validar SIAF selecionado", command=on_validate, state="disabled"
         )
         self.validate_button.pack(side="left", padx=2)
         self.inspect_button = ttk.Button(
@@ -51,6 +51,23 @@ class EnvironmentPage(ttk.Frame):
         )
         self.manual_button.pack(side="left", padx=2)
 
+        installation_frame = ttk.Frame(self, style="Surface.TFrame")
+        installation_frame.pack(fill="x", pady=(18, 0))
+        ttk.Label(
+            installation_frame,
+            text="Instalação do SIAF para validar:",
+            style="Subtitle.TLabel",
+        ).pack(side="left", padx=(0, 10))
+        self.installation_var = tk.StringVar()
+        self.installation_selector = ttk.Combobox(
+            installation_frame,
+            textvariable=self.installation_var,
+            state="disabled",
+            width=72,
+        )
+        self.installation_selector.pack(side="left", fill="x", expand=True)
+        self._installation_roots: dict[str, str | None] = {}
+
         self.details = tk.Text(
             self,
             wrap="word",
@@ -61,7 +78,7 @@ class EnvironmentPage(ttk.Frame):
             pady=14,
             font=("Consolas", 10),
         )
-        self.details.pack(fill="both", expand=True, pady=(18, 0))
+        self.details.pack(fill="both", expand=True, pady=(12, 0))
         self.set_details("Aguardando a análise automática do ambiente.\n")
 
     def set_busy(self, busy: bool) -> None:
@@ -88,7 +105,34 @@ class EnvironmentPage(ttk.Frame):
         self.details.config(state="disabled")
 
     def render_report(self, report: DiscoveryReport) -> None:
+        self.set_installations(report.installations)
         self.set_details(format_discovery_report(report))
+
+    def set_installations(self, installations: list[SiafInstallationFinding]) -> None:
+        self._installation_roots = {}
+        if not installations:
+            self.installation_selector.configure(values=(), state="disabled")
+            self.installation_var.set("Nenhuma instalação agrupada")
+            return
+
+        labels: list[str] = []
+        for item in installations:
+            status = "em execução" if item.active else "detectada"
+            label = (
+                f"{item.root} — {status}, {len(item.database_paths)} base(s), "
+                f"{item.confidence}%"
+            )
+            labels.append(label)
+            self._installation_roots[label] = item.root
+        if len(installations) > 1:
+            all_label = f"Todas as instalações — {len(installations)} detectadas"
+            labels.append(all_label)
+            self._installation_roots[all_label] = None
+        self.installation_selector.configure(values=labels, state="readonly")
+        self.installation_var.set(labels[0])
+
+    def selected_installation_root(self) -> str | None:
+        return self._installation_roots.get(self.installation_var.get())
 
     def apply_palette(self, palette: ThemePalette) -> None:
         self.details.configure(
@@ -108,6 +152,7 @@ def format_discovery_report(report: DiscoveryReport) -> str:
         f"Privilégio administrativo: {'sim' if report.is_admin else 'não'}",
         "",
         f"SIAF em execução: {len(report.siaf_processes)}",
+        f"Instalações SIAF agrupadas: {len(report.installations)}",
         f"Atalhos SIAF: {len(report.siaf_shortcuts)}",
         f"Processos Firebird/InterBase: {len(report.firebird_processes)}",
         f"Serviços Firebird/InterBase: {len(report.services)}",
@@ -123,6 +168,15 @@ def format_discovery_report(report: DiscoveryReport) -> str:
         f"Aliases Firebird: {len(report.aliases)}",
         f"Bases candidatas: {len(report.databases)}",
     ]
+    if report.installations:
+        lines.extend(("", "Instalações disponíveis:"))
+        for installation in report.installations:
+            status = "em execução" if installation.active else "detectada"
+            lines.append(
+                f"  • {installation.root} — {status}, "
+                f"{len(installation.database_paths)} base(s), "
+                f"confiança {installation.confidence}%"
+            )
     for database in report.databases:
         lines.append(f"  • {database.kind_hint}: {database.path} (pontuação {database.score})")
     if report.network_connections:
@@ -140,8 +194,18 @@ def format_discovery_report(report: DiscoveryReport) -> str:
     if report.client_libraries:
         lines.extend(("", "Bibliotecas encontradas:"))
         for library in report.client_libraries:
-            compatibility = "compatível" if library.compatible_with_process else "incompatível"
-            lines.append(f"  • {library.path} — {library.architecture}, {compatibility}")
+            if library.ready:
+                compatibility = "pronta para uso"
+            elif not library.compatible_with_process:
+                compatibility = "arquitetura incompatível"
+            else:
+                compatibility = "rejeitada no preflight"
+            version = f", versão {library.version}" if library.version else ""
+            issue = f" — {library.issue}" if library.issue else ""
+            lines.append(
+                f"  • {library.path} — {library.architecture}, "
+                f"{compatibility}{version}{issue}"
+            )
     if report.evidence:
         lines.extend(("", "Evidências utilizadas:"))
         lines.extend(

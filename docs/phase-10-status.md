@@ -104,10 +104,9 @@ Esta validação confirma a coerência estrutural do protocolo incorporado ao ar
 consulta a situação atual da chave na SEFAZ e, portanto, não detecta um cancelamento ocorrido
 depois da geração do XML.
 
-Validação automatizada atual: 226 testes não visuais aprovados e Ruff sem apontamentos. O smoke
-Tkinter permanece pendente neste computador porque o `.venv` referencia um Python 3.11.9 x86
-cujo executável não está mais instalado; o runtime auxiliar disponível possui Tcl incompatível
-com o teste visual.
+Validação automatizada atual: 250 testes aprovados no Python 3.11.9 x86 e Ruff sem
+apontamentos. O smoke Tkinter e o executável `onedir` x86 foram aprovados neste computador; a
+janela abriu responsiva e encerrou normalmente.
 
 ## Incremento 10.5 — preparação manual e análise orientada
 

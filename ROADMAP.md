@@ -7,6 +7,9 @@
 > **Revisão 1.2:** consultas básicas passam a ser tratadas como infraestrutura de validação. O
 > diferencial do produto são diagnósticos cruzados, comparação entre lojas e automações de
 > suporte que o SIAF não oferece diretamente ou que exigem trabalho manual repetitivo.
+>
+> **Revisão 1.3:** a compatibilidade do runtime passa a aceitar Firebird 2.5.7, 2.5.8 e
+> 2.5.9, sempre com ODS 11.2 e biblioteca cliente x86 no aplicativo.
 
 ## Metadados do projeto
 
@@ -17,7 +20,7 @@
 | Formato final | Aplicação desktop portátil com interface gráfica e executável `.exe`; sem navegador e sem servidor web |
 | Local de execução | **No próprio computador do cliente**, durante o atendimento |
 | Modelo operacional | Descoberta automática do ambiente SIAF, Firebird, executáveis, serviços e bases |
-| Banco do SIAF | **Firebird 2.5.7 — 32 bits** |
+| Banco do SIAF | **Firebird 2.5.7 a 2.5.9 — cliente x86/32 bits** |
 | Bases principais | `SIAFLOJA.FDB` e `SIAFW.FDB` |
 | Porta Firebird | Detectada automaticamente; padrão provável TCP `3050`, sem exigir digitação no fluxo normal |
 | Linguagem | Python 3.11, com build x86/32 bits no MVP |
@@ -26,8 +29,8 @@
 | Banco interno | SQLite |
 | Empacotamento | PyInstaller |
 | Base de conhecimento usada | SIAF consolidada v1.0 |
-| Versão deste documento | **1.2 — Diagnósticos, comparação e automações** |
-| Data deste documento | 2026-07-26 |
+| Versão deste documento | **1.3 — Compatibilidade Firebird 2.5.7 a 2.5.9** |
+| Data deste documento | 2026-07-27 |
 
 > **Premissa revisada:** o atendente não deverá cadastrar host, porta e caminho da base para o uso comum. Ao abrir o `.exe`, a ferramenta deverá inspecionar o computador, identificar como o SIAF está instalado/conectado e apresentar automaticamente as bases disponíveis. A configuração manual será apenas um recurso de contingência.
 
@@ -72,7 +75,7 @@ Consultas, diagnósticos e relatórios ficam disponíveis
 - Executar no próprio computador do cliente sem exigir instalação de Python.
 - Detectar automaticamente se a máquina é o servidor do Firebird ou apenas um terminal do SIAF.
 - Detectar serviços, processos, instalação e versão do Firebird.
-- Identificar `fbclient.dll` ou `gds32.dll` compatível com Firebird 2.5.7 x86.
+- Identificar `fbclient.dll` ou `gds32.dll` x86 compatível com Firebird 2.5.7 a 2.5.9.
 - Descobrir automaticamente `SIAFW.FDB` e todas as bases `SIAFLOJA.FDB`.
 - Identificar o servidor remoto utilizado pelo SIAF quando a ferramenta for executada em um terminal.
 - Conectar com segurança às bases encontradas.
@@ -115,9 +118,12 @@ parte de um diagnóstico, comparação, automação ou evidência que o sistema 
 
 ---
 
-## 2. Arquitetura operacional e Firebird 2.5.7 x86
+## 2. Arquitetura operacional e Firebird 2.5.7 a 2.5.9
 
-O ambiente informado utiliza **Firebird 2.5.7 de 32 bits**, e o executável será utilizado diretamente no computador do cliente. A arquitetura deve ser projetada para reconhecer o ambiente existente, e não para exigir que o cliente forneça parâmetros técnicos.
+O ambiente homologado originalmente utiliza **Firebird 2.5.7 de 32 bits**. A ferramenta também
+aceita Firebird 2.5.8 e 2.5.9, mantendo ODS 11.2 e biblioteca cliente x86 no processo da
+aplicação. O executável será utilizado diretamente no computador do cliente. A arquitetura deve
+reconhecer o ambiente existente, e não exigir que o cliente forneça parâmetros técnicos.
 
 ### Estratégia de compatibilidade do MVP
 
@@ -129,7 +135,7 @@ O ambiente informado utiliza **Firebird 2.5.7 de 32 bits**, e o executável ser�
 - Nunca tentar carregar uma DLL 64 bits em processo 32 bits.
 - Detectar a versão pelo executável do servidor, propriedades do arquivo, serviço ou consulta ao servidor após a conexão.
 - Usar o serviço Firebird existente para abrir as bases; não manipular o arquivo `.FDB` como arquivo comum.
-- Trabalhar inicialmente com Firebird 2.5.7/ODS compatível, bloqueando operações se a versão for incompatível.
+- Trabalhar com Firebird 2.5.7 a 2.5.9 e ODS 11.2, bloqueando operações fora dessa faixa.
 
 ### Modos operacionais detectados
 
@@ -239,7 +245,7 @@ SIAF é o sistema/ERP comercial, fiscal e operacional usado no suporte da Adsoft
 
 | Camada | Tecnologia | Uso |
 |---|---|---|
-| Runtime | Python 3.11 x86 | Compatibilidade com o ambiente Firebird 2.5.7 x86 |
+| Runtime | Python 3.11 x86 | Compatibilidade com Firebird 2.5.7 a 2.5.9 e cliente x86 |
 | Interface | tkinter + ttk | Aplicação desktop nativa |
 | Tema opcional | ttkbootstrap | Aparência moderna mantendo Tk |
 | Firebird | fdb | Conexão e transações Firebird 2.5 |
@@ -1142,7 +1148,7 @@ Antes da implementação da escrita, a Fase 15 deve escolher e homologar explici
 O modo retomável não pode ser tratado como rollback global. Uma falha após lotes confirmados deve
 gerar estado parcial, impedir uma nova execução cega e orientar retomada ou análise. A decisão
 será tomada em cópias de bases representativas, considerando volume, tempo e comportamento do
-Firebird 2.5.7.
+Firebird 2.5.7 a 2.5.9.
 
 ---
 
@@ -1273,7 +1279,7 @@ Firebird 2.5.7.
 > de falhas e a exportação de diagnóstico sem credenciais também estão disponíveis. A suíte
 > possuía 107 testes, 85% de cobertura combinada e build PyInstaller x86 aprovado em smoke no
 > encerramento da fase.
-> A estabilização passou a bloquear versões diferentes de Firebird 2.5.7/ODS 11.2, detectar
+> A estabilização bloqueia versões fora de Firebird 2.5.7 a 2.5.9/ODS 11.2, detecta
 > portas remotas `3050–3099` observadas pelo SIAF, preservar a porta de cada instância e impedir
 > troca silenciosa da DLL cliente durante a sessão.
 > A revisão de 2026-07-19 também passou a ler configurações UTF-8, UTF-16 e CP1252, mascarar
@@ -1462,6 +1468,10 @@ Firebird 2.5.7.
 > após edições e separa os totais do XML completo dos valores da seleção atual. A comparação com
 > os cadastros atuais permanece pendente e não há acesso de escrita. Consulte
 > `docs/phase-10-status.md`.
+>
+> **Build local validado em 2026-07-27.** O artefato `onedir` foi regenerado com Python 3.11.9
+> x86 após Ruff e 250 testes aprovados. O executável abriu a janela principal responsiva e
+> encerrou normalmente no smoke do Windows.
 
 **Entregas:**
 
@@ -1616,7 +1626,7 @@ Firebird 2.5.7.
 Utilizar:
 
 - Cópias anonimizadas de SIAFLOJA e SIAFW.
-- Firebird 2.5.7 x86.
+- Firebird 2.5.7, 2.5.8 e 2.5.9 com cliente x86.
 - Máquina servidor com serviço local.
 - Máquina terminal sem serviço local.
 - Terminal com SIAF aberto e conexão remota ativa.
@@ -1776,7 +1786,7 @@ O `.exe` final poderá extrair internamente seus componentes, mas o usuário dev
 3. O fluxo principal deve descobrir automaticamente SIAF, Firebird, servidor e bases.
 4. Host, porta e caminho não são campos obrigatórios no uso normal.
 5. Configuração manual existe somente como fallback avançado.
-6. O ambiente alvo utiliza Firebird 2.5.7 de 32 bits.
+6. O ambiente alvo utiliza Firebird 2.5.7 a 2.5.9, com cliente x86/32 bits.
 7. O MVP deve ser desenvolvido e empacotado com Python x86/32 bits.
 8. Detectar e validar fbclient.dll ou gds32.dll x86.
 9. Não depender de um único nome de serviço Firebird.
@@ -1819,7 +1829,7 @@ Fluxo esperado:
 1. Abrir o .exe.
 2. Analisar o computador.
 3. Detectar instalação/processo do SIAF.
-4. Detectar Firebird 2.5.7 x86 ou ambiente compatível.
+4. Detectar Firebird 2.5.7 a 2.5.9 com cliente x86 ou ambiente compatível.
 5. Determinar se a máquina é servidor local ou terminal.
 6. Descobrir servidor, porta e bases automaticamente.
 7. Validar o esquema.
@@ -1828,7 +1838,7 @@ Fluxo esperado:
 10. Liberar consultas e diagnósticos.
 
 Ambiente obrigatório:
-- Firebird 2.5.7 de 32 bits.
+- Firebird 2.5.7 a 2.5.9 com cliente x86/32 bits.
 - Python 3.11 x86/32 bits no MVP.
 - Biblioteca fdb.
 - psutil para inspeção controlada de processos/conexões.
@@ -1913,7 +1923,7 @@ Antes de alterar:
 
 Durante:
 - preserve separação entre UI, services, repositories e database;
-- mantenha compatibilidade Firebird 2.5.7 x86;
+- mantenha compatibilidade Firebird 2.5.7 a 2.5.9 com cliente x86;
 - adicione tratamento de erros e logs sem dados sensíveis;
 - use workers para tarefas demoradas;
 - escreva testes;
@@ -2953,7 +2963,7 @@ Os SQLs abaixo devem ser importados como templates com nível de risco. Os coman
 ## 32. Definition of Done da versão 1.0
 
 - Executável Windows abre sem console e sem Python instalado.
-- Compatibilidade comprovada com Firebird 2.5.7 32 bits.
+- Compatibilidade comprovada com Firebird 2.5.7 a 2.5.9 e cliente x86.
 - Conecta em SIAFLOJA e SIAFW local/remoto.
 - Consultas não congelam a interface.
 - Bases grandes são processadas em lotes.
@@ -2981,3 +2991,16 @@ Os SQLs abaixo devem ser importados como templates com nível de risco. Os coman
 - Casos reais, prints, documentos e procedimentos consolidados na base v1.0.
 
 > Observação final: a base de conhecimento contém informações com diferentes níveis de confiança. A ferramenta deve tratar o catálogo como referência e validar a estrutura real antes de qualquer consulta ou operação crítica.
+
+---
+
+## 34. Estabilização da descoberta para múltiplos SIAF — concluída em 2026-07-27
+
+- [x] Agrupar executáveis, configurações e bases pela raiz de cada instalação.
+- [x] Priorizar a instalação em execução e permitir seleção explícita na interface.
+- [x] Manter a opção de validar todas as instalações detectadas.
+- [x] Descartar horários e duplas numéricas do parser de referências `host:alias`.
+- [x] Verificar DLL cliente x86 em processo isolado antes da conexão.
+- [x] Priorizar `fbclient.dll` utilizável e aplicar fallback somente para falha da biblioteca.
+- [x] Preservar o fluxo automático sem exigir host, porta, caminho ou DLL.
+- [x] Cobrir agrupamento, seleção, preflight, ordenação e fallback com testes.

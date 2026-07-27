@@ -32,6 +32,9 @@ from siaf_support_toolbox.discovery.siaf_connection_detector import (
     detect_siaf_connection_references,
 )
 from siaf_support_toolbox.discovery.siaf_install_detector import detect_siaf_installations
+from siaf_support_toolbox.discovery.siaf_installation_grouper import (
+    group_siaf_installations,
+)
 from siaf_support_toolbox.discovery.windows_service_detector import detect_firebird_services
 
 LOGGER = logging.getLogger(__name__)
@@ -124,6 +127,23 @@ class DiscoveryOrchestrator:
             ([],),
         )
         report.issues.extend(issues)
+        report.installations = group_siaf_installations(
+            installations,
+            report.siaf_processes,
+            report.databases,
+            report.connection_references,
+        )
+        report.evidence.extend(
+            Evidence(
+                "instalacao_siaf_agrupada",
+                (
+                    f"{item.root}: {len(item.database_paths)} base(s)"
+                    + ("; em execução" if item.active else "")
+                ),
+                min(item.confidence, 40),
+            )
+            for item in report.installations
+        )
         report.network_connections, issues = self._safe(
             "conexoes_tcp_siaf",
             lambda: detect_process_connections(item.pid for item in report.siaf_processes),

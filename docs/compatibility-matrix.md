@@ -7,6 +7,8 @@
 | Windows 10 x64 executando app x86 | Pendente | Execução em máquina de homologação |
 | Windows 11 x64 executando app x86 | Pendente | Execução em máquina de homologação |
 | Firebird 2.5.7 x86 local | Parcial | Versão, serviços/processos, DLL e duas bases detectados; conexão pendente |
+| Firebird 2.5.8 | Automatizado | Versão e ODS 11.2 aceitos pelos testes de sondagem e inspeção |
+| Firebird 2.5.9 com cliente x86 | Parcial | Servidor e DLL x86 compatível detectados; conexão real e esquema pendentes |
 | Terminal com SIAF aberto | Pendente | Processo e conexão TCP remota correlacionada |
 | SIAFW.FDB de teste | Pendente | Conexão e assinatura de esquema |
 | SIAFLOJA.FDB de teste | Pendente | Conexão e assinatura de esquema |

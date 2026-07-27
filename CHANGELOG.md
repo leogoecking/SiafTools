@@ -475,3 +475,51 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
   **Desp.Acess.** ou **Acréscimo**.
 - Suíte ampliada para 244 testes: 243 testes não visuais aprovados e smoke Tkinter pendente
   devido ao runtime x86 ausente neste computador.
+
+### Compatibilidade Firebird 2.5.7 a 2.5.9 — 2026-07-27
+
+- Validação do servidor passa a aceitar Firebird 2.5.7, 2.5.8 e 2.5.9, mantendo ODS 11.2
+  obrigatório e biblioteca cliente x86.
+- Versões 2.5.6, 2.5.10 e demais versões fora da faixa continuam bloqueadas antes da leitura do
+  catálogo.
+- Sondagem somente leitura e inspeção estrutural possuem regressões para as três versões
+  permitidas.
+- Ambiente local confirmou descoberta do Firebird 2.5.9.27139 e de biblioteca cliente x86
+  compatível; conexão real e classificação do esquema nessa versão permanecem pendentes de
+  credenciais autorizadas.
+- Suíte completa ampliada para 250 testes; todos aprovados no Python 3.11.9 x86, com Ruff
+  aprovado.
+
+### Artefato local x86 regenerado — 2026-07-27
+
+- Build oficial concluído com Python 3.11.9 x86 e PyInstaller 6.21.0 após Ruff e 250 testes
+  aprovados.
+- Artefato `onedir` criado em `dist\SIAFSupportToolbox`, com 949 arquivos e 25.206.618 bytes.
+- Executável PE x86 possui 3.459.837 bytes e SHA-256
+  `E5F4F58546C7689EC9B948F940266353DA1569944D27EBDE9FEFFE7DD1238AD4`.
+- Smoke do executável abriu a janela principal responsiva e encerrou normalmente, sem
+  registros no `errors.log`.
+
+### Descoberta automática multi-SIAF — 2026-07-27
+
+- A tela de ambiente passa a agrupar bases e configurações por instalação do SIAF e oferece um
+  seletor, priorizando a instalação em execução.
+- O atendente pode validar uma instalação específica ou todas as instalações detectadas sem
+  preencher os campos avançados.
+- Referências numéricas com formato de horário, como `00:00` e `08:35`, deixam de ser
+  interpretadas como servidores.
+- DLLs x86 são carregadas previamente em processo isolado e precisam expor a API cliente
+  Firebird esperada.
+- `fbclient.dll` utilizável na faixa suportada recebe prioridade; fallback para outra DLL ocorre
+  apenas quando o carregamento da biblioteca falha.
+- Cópias idênticas de uma DLL compartilham o resultado do preflight para reduzir o tempo da
+  descoberta.
+- A validação local escolheu automaticamente `WOW64\fbclient.dll` 2.5.9.27139, rejeitou
+  `gds32.dll` 9.0.3.437 sem `fb_interpret`, agrupou seis bases em `C:\Siafw` e eliminou os
+  falsos endpoints `00` e `08`.
+- Ruff e 257 testes automatizados aprovados no Python 3.11.9 x86.
+- Novo artefato `onedir` criado com 949 arquivos e 25.221.693 bytes; executável x86 com
+  3.474.912 bytes e SHA-256
+  `00325BAF2F5B5D2DE5398D88403AF8DFE84F931B63AFEE712CDF62DD8E2D68C5`.
+- O executável final abriu responsivo, encerrou normalmente e confirmou no próprio preflight a
+  `fbclient.dll` 2.5.9 como utilizável e a `gds32.dll` 9.0.3 como incompatível.

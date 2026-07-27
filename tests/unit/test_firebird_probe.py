@@ -77,11 +77,16 @@ def call_probe():
     )
 
 
-def test_probe_accepts_strong_schema_and_rolls_back(monkeypatch):
+@pytest.mark.parametrize(
+    "server_version",
+    ["2.5.7.27050", "2.5.8.27089", "2.5.9.27139"],
+)
+def test_probe_accepts_supported_runtime_and_rolls_back(monkeypatch, server_version):
     connection = install_fake_fdb(
         monkeypatch,
         ["DSIAF006", "DSIAF010", "DSIAF011", "DSIAF036", "DSIAF037", "DSIAF400"],
     )
+    connection.version = server_version
 
     result = call_probe()
 
@@ -90,13 +95,15 @@ def test_probe_accepts_strong_schema_and_rolls_back(monkeypatch):
     assert connection.rolled_back
     assert connection.closed
     assert connection.tpb == b"readonly"
-    assert result.server_version == "2.5.7.27050"
+    assert result.server_version == server_version
     assert result.ods_version == "11.2"
 
 
 @pytest.mark.parametrize(
     ("server_version", "ods_version", "expected_code"),
     [
+        ("2.5.6.27020", "11.2", "unsupported_firebird_version"),
+        ("2.5.10", "11.2", "unsupported_firebird_version"),
         ("4.0.5", "13.0", "unsupported_firebird_version"),
         ("2.5.7.27050", "13.0", "unsupported_ods_version"),
     ],
@@ -231,3 +238,20 @@ def test_probe_rejects_switching_an_already_loaded_client_library(monkeypatch):
     assert not result.success
     assert result.error_code == "client_library_already_loaded"
     assert not connected
+
+
+def test_probe_reports_missing_firebird_api_as_client_library_error(monkeypatch):
+    fake_fdb = SimpleNamespace(
+        load_api=lambda _path: (_ for _ in ()).throw(
+            AttributeError("function 'fb_interpret' not found")
+        )
+    )
+    monkeypatch.setitem(sys.modules, "fdb", fake_fdb)
+    monkeypatch.setattr(firebird_probe, "pe_architecture", lambda _path: Architecture.X86)
+    monkeypatch.setattr(firebird_probe, "process_architecture", lambda: Architecture.X86)
+
+    result = call_probe()
+
+    assert not result.success
+    assert result.error_code == "client_library_incompatible"
+    assert "API cliente Firebird" in result.message

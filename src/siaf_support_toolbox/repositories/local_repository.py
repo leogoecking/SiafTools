@@ -43,7 +43,7 @@ class LocalRepository:
                 (item.executable for item in report.firebird_processes if item.executable), None
             )
         client = next(
-            (item for item in report.client_libraries if item.compatible_with_process),
+            (item for item in report.client_libraries if item.ready),
             report.client_libraries[0] if report.client_libraries else None,
         )
         machine_name = _text(machine_name)

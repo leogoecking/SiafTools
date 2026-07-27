@@ -15,9 +15,13 @@ from siaf_support_toolbox.database.firebird_probe import (
     probe_read_only,
     runtime_compatibility_issue,
 )
+from siaf_support_toolbox.discovery.firebird_client_detector import rank_client_libraries
 from siaf_support_toolbox.discovery.models import DiscoveryReport, MachineMode
 from siaf_support_toolbox.discovery.network_candidates import (
     correlated_connections_for_reference,
+)
+from siaf_support_toolbox.discovery.siaf_installation_grouper import (
+    installation_for_database,
 )
 from siaf_support_toolbox.repositories.local_repository import LocalRepository
 from siaf_support_toolbox.repositories.models import ExecutionRecord, ManualConnectionProfile
@@ -56,6 +60,8 @@ class ConnectionTarget:
     source: str
     confidence: int
     manual: bool = False
+    fallback_client_libraries: tuple[str, ...] = ()
+    installation_root: str | None = None
 
     @property
     def dsn(self) -> str:
@@ -102,13 +108,15 @@ class FirebirdConnectionService:
         self,
         report: DiscoveryReport,
         manual: ManualConnectionInput | None = None,
+        *,
+        installation_root: str | None = None,
     ) -> ConnectionPlan:
         environment = self.repository.active_environment(self.machine_name)
         if environment is None:
             return ConnectionPlan((), ("A descoberta atual ainda não foi persistida.",))
 
         compatible_libraries = [
-            item.path for item in report.client_libraries if item.compatible_with_process
+            item.path for item in rank_client_libraries(report.client_libraries) if item.ready
         ]
         library = manual.client_library if manual else next(iter(compatible_libraries), None)
         if not library:
@@ -120,6 +128,28 @@ class FirebirdConnectionService:
             )
 
         targets: list[ConnectionTarget] = []
+        fallback_libraries = (
+            ()
+            if manual
+            else tuple(
+                item
+                for item in compatible_libraries
+                if item.casefold() != str(library).casefold()
+            )
+        )
+        selected_installation = next(
+            (
+                item
+                for item in report.installations
+                if _path_key(item.root) == _path_key(installation_root or "")
+            ),
+            None,
+        )
+        selected_database_paths = (
+            {_path_key(item) for item in selected_installation.database_paths}
+            if selected_installation
+            else None
+        )
         port = int(environment.get("detected_port") or DEFAULT_FIREBIRD_PORT)
         host = str(environment.get("detected_host") or "localhost")
         databases_by_endpoint = {
@@ -140,6 +170,11 @@ class FirebirdConnectionService:
 
         if report.mode != MachineMode.TERMINAL:
             for candidate in report.databases:
+                if (
+                    selected_database_paths is not None
+                    and _path_key(candidate.path) not in selected_database_paths
+                ):
+                    continue
                 candidate_ports = ports_by_database.get(_path_key(candidate.path), {port})
                 for candidate_port in sorted(candidate_ports):
                     stored = databases_by_endpoint.get((_path_key(candidate.path), candidate_port))
@@ -166,6 +201,13 @@ class FirebirdConnectionService:
         alias_host = host if report.mode == MachineMode.TERMINAL else "localhost"
         for configuration in report.firebird_configurations:
             for alias in configuration.aliases:
+                if selected_installation and not _belongs_to_installation(
+                    alias.database,
+                    alias.source_file,
+                    selected_installation.root,
+                    selected_database_paths or set(),
+                ):
+                    continue
                 targets.append(
                     ConnectionTarget(
                         int(environment["id"]),
@@ -182,6 +224,13 @@ class FirebirdConnectionService:
         for alias in report.aliases:
             if _alias_key(alias.alias, alias.database, alias.source_file) in configured_aliases:
                 continue
+            if selected_installation and not _belongs_to_installation(
+                alias.database,
+                alias.source_file,
+                selected_installation.root,
+                selected_database_paths or set(),
+            ):
+                continue
             targets.append(
                 ConnectionTarget(
                     int(environment["id"]),
@@ -197,6 +246,10 @@ class FirebirdConnectionService:
             )
 
         for reference in report.connection_references:
+            if selected_installation and not _path_is_within(
+                reference.source_file, selected_installation.root
+            ):
+                continue
             reference_host = reference.host or (
                 host if report.mode == MachineMode.TERMINAL else "localhost"
             )
@@ -225,7 +278,7 @@ class FirebirdConnectionService:
                 )
 
         historical = self.repository.latest_validated_discovery(self.machine_name)
-        if historical and not targets:
+        if historical and not targets and selected_installation is None:
             historical_host = str(historical.get("detected_host") or "localhost")
             historical_port = int(historical.get("detected_port") or DEFAULT_FIREBIRD_PORT)
             historical_library = str(historical.get("client_library_path") or library)
@@ -260,6 +313,18 @@ class FirebirdConnectionService:
                 )
             ]
 
+        targets = [
+            replace(
+                target,
+                fallback_client_libraries=fallback_libraries if not target.manual else (),
+                installation_root=(
+                    selected_installation.root
+                    if selected_installation
+                    else installation_for_database(target.database_path, report.installations)
+                ),
+            )
+            for target in targets
+        ]
         unique: dict[tuple[str, int, str, str], ConnectionTarget] = {}
         for target in targets:
             key = (
@@ -287,16 +352,7 @@ class FirebirdConnectionService:
             for target in plan.targets:
                 started_at = datetime.now(UTC)
                 started = time.monotonic()
-                result = self._probe(
-                    dsn=target.dsn,
-                    username=credentials.username,
-                    password=credentials.password,
-                    client_library=target.client_library,
-                    charset=credentials.charset,
-                    host=target.host,
-                    port=target.port,
-                    connect_timeout=3.0,
-                )
+                target, result = self._probe_with_fallback(target, credentials)
                 if result.success:
                     compatibility_issue = runtime_compatibility_issue(
                         result.server_version, result.ods_version
@@ -376,6 +432,39 @@ class FirebirdConnectionService:
         finally:
             credentials.clear()
 
+    def _probe_with_fallback(
+        self,
+        target: ConnectionTarget,
+        credentials: SessionCredentials,
+    ) -> tuple[ConnectionTarget, FirebirdProbeResult]:
+        candidates = (target.client_library, *target.fallback_client_libraries)
+        current_target = target
+        result: FirebirdProbeResult | None = None
+        for library in candidates:
+            current_target = replace(
+                target,
+                client_library=library,
+                fallback_client_libraries=(),
+            )
+            result = self._probe(
+                dsn=current_target.dsn,
+                username=credentials.username,
+                password=credentials.password,
+                client_library=current_target.client_library,
+                charset=credentials.charset,
+                host=current_target.host,
+                port=current_target.port,
+                connect_timeout=3.0,
+            )
+            if result.success or result.error_code not in {
+                "client_library_incompatible",
+                "client_library_load_failed",
+            }:
+                break
+        if result is None:
+            raise RuntimeError("O plano de conexão não possui biblioteca cliente")
+        return current_target, result
+
 
 def _schema_signature(result: FirebirdProbeResult) -> str:
     classification = result.classification
@@ -393,3 +482,20 @@ def _path_key(value: str) -> str:
 
 def _alias_key(alias: str, database: str, source_file: str) -> tuple[str, str, str]:
     return alias.casefold(), _path_key(database), _path_key(source_file)
+
+
+def _path_is_within(path: str, root: str) -> bool:
+    normalized_path = _path_key(path).rstrip("\\")
+    normalized_root = _path_key(root).rstrip("\\")
+    return normalized_path == normalized_root or normalized_path.startswith(
+        normalized_root + "\\"
+    )
+
+
+def _belongs_to_installation(
+    database: str,
+    source_file: str,
+    root: str,
+    database_paths: set[str],
+) -> bool:
+    return _path_key(database) in database_paths or _path_is_within(source_file, root)

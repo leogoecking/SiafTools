@@ -19,6 +19,7 @@ from siaf_support_toolbox.discovery.models import (  # noqa: E402
     DiscoveryReport,
     MachineMode,
     ProcessFinding,
+    SiafInstallationFinding,
 )
 from siaf_support_toolbox.fiscal.nfe_xml_reader import (  # noqa: E402
     NFeDocument,
@@ -333,8 +334,29 @@ def main() -> int:
         mode=MachineMode.LOCAL_SERVER,
         firebird_processes=[ProcessFinding(1, "fbserver.exe")],
         databases=[DatabaseCandidate("C:/SIAFW/SIAFW.FDB", "SIAFW", 1, 90)],
+        installations=[
+            SiafInstallationFinding(
+                "C:/SIAFW",
+                ("C:/SIAFW/SIAFW.EXE",),
+                ("C:/SIAFW/SIAFW.FDB",),
+                active=True,
+                confidence=95,
+            ),
+            SiafInstallationFinding(
+                "D:/SIAFW-2",
+                ("D:/SIAFW-2/SIAFW.EXE",),
+                ("D:/SIAFW-2/SIAFW.FDB",),
+                confidence=70,
+            ),
+        ],
     )
     window._render_report(report)
+    installation_values = tuple(window.environment_page.installation_selector.cget("values"))
+    window.environment_page.installation_var.set(installation_values[1])
+    multi_siaf_selection_ready = (
+        len(installation_values) == 3
+        and window.environment_page.selected_installation_root() == "D:/SIAFW-2"
+    )
     window.environment_page.set_actions(
         validate=True, export=True, manual=True, inspect=True
     )
@@ -397,6 +419,7 @@ def main() -> int:
                 "stale_output_file_cleared": stale_output_file_cleared,
                 "stale_header_cleared": stale_header_cleared,
                 "stale_actions_disabled": stale_actions_disabled,
+                "multi_siaf_selection_ready": multi_siaf_selection_ready,
             },
             ensure_ascii=False,
         )

@@ -69,6 +69,13 @@ class ClientLibraryFinding:
     name: str
     architecture: Architecture
     compatible_with_process: bool
+    usable: bool | None = None
+    version: str | None = None
+    issue: str | None = None
+
+    @property
+    def ready(self) -> bool:
+        return self.compatible_with_process and self.usable is not False
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,6 +119,16 @@ class ConnectionReferenceFinding:
     source_file: str
 
 
+@dataclass(frozen=True, slots=True)
+class SiafInstallationFinding:
+    root: str
+    executables: tuple[str, ...]
+    database_paths: tuple[str, ...]
+    reference_sources: tuple[str, ...] = ()
+    active: bool = False
+    confidence: int = 0
+
+
 @dataclass(slots=True)
 class DiscoveryReport:
     process_architecture: Architecture = Architecture.UNKNOWN
@@ -129,6 +146,7 @@ class DiscoveryReport:
     aliases: list[AliasFinding] = field(default_factory=list)
     firebird_configurations: list[FirebirdConfigurationFinding] = field(default_factory=list)
     connection_references: list[ConnectionReferenceFinding] = field(default_factory=list)
+    installations: list[SiafInstallationFinding] = field(default_factory=list)
     detected_ports: list[int] = field(default_factory=lambda: [3050])
     network_candidate_ports: list[int] = field(default_factory=list)
     mode: MachineMode = MachineMode.ASSISTED

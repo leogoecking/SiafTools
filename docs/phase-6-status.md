@@ -14,8 +14,8 @@ estiver ausente ou desatualizada, a consulta é bloqueada antes de abrir o Fireb
 - Parâmetros nomeados declarados pelo template, convertidos e enviados ao driver como valores
   posicionais; valores nunca são interpolados no texto SQL.
 - Revalidação do SQL tanto no serviço quanto no executor Firebird.
-- Uma conexão Firebird própria do worker, com DLL x86, Firebird 2.5.7, ODS 11.2, transação
-  somente leitura e rollback obrigatório.
+- Uma conexão Firebird própria do worker, com DLL x86, Firebird 2.5.7 a 2.5.9, ODS 11.2,
+  transação somente leitura e rollback obrigatório.
 - Leitura em lotes de 200 registros com `fetchmany`, sem `fetchall` nas bases do cliente.
 - Cancelamento cooperativo verificado entre lotes.
 - Cache SQLite temporário por resultado, páginas de 100 linhas na interface e limite interno de

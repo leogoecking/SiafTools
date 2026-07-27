@@ -69,6 +69,8 @@ class ConnectionProvider(Protocol):
         self,
         report: DiscoveryReport,
         manual: ManualConnectionInput | None = None,
+        *,
+        installation_root: str | None = None,
     ) -> ConnectionPlan: ...
 
     def validate(
@@ -474,11 +476,15 @@ class MainWindow(tk.Tk):
         self._last_report = report
         self._last_summary = None
         self.query_page.set_databases(())  # type: ignore[attr-defined]
+        self.environment_page.render_report(report)  # type: ignore[attr-defined]
+        installation_root = self.environment_page.selected_installation_root()  # type: ignore[attr-defined]
         if self._connection_service is not None:
-            self._last_plan = self._connection_service.build_plan(report)
+            self._last_plan = self._connection_service.build_plan(
+                report,
+                installation_root=installation_root,
+            )
         else:
             self._last_plan = ConnectionPlan(())
-        self.environment_page.render_report(report)  # type: ignore[attr-defined]
         if self._last_plan.issues:
             self.environment_page.append_details(  # type: ignore[attr-defined]
                 "\n\nConexão automática:\n"
@@ -512,12 +518,24 @@ class MainWindow(tk.Tk):
         )
 
     def start_connection_validation(self) -> None:
-        if self._closing or self._worker_running() or not self._last_plan.targets:
+        if (
+            self._closing
+            or self._worker_running()
+            or self._last_report is None
+            or self._connection_service is None
+        ):
+            return
+        plan = self._connection_service.build_plan(
+            self._last_report,
+            installation_root=self.environment_page.selected_installation_root(),  # type: ignore[attr-defined]
+        )
+        if not plan.targets:
+            show_message(self, "Conexão indisponível", "\n".join(plan.issues))
             return
         credentials = ask_credentials(self)
         if credentials is None:
             return
-        self._start_connection_worker(self._last_plan, credentials)
+        self._start_connection_worker(plan, credentials)
 
     def start_manual_connection(self) -> None:
         if self._closing or self._worker_running() or self._last_report is None:

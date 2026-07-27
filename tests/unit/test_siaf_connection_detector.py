@@ -45,3 +45,17 @@ def test_detector_preserves_cp1252_paths_with_accents(tmp_path):
     assert issues == []
     assert len(findings) == 1
     assert findings[0].database == "C:\\Dados\\São João\\SIAFLOJA.FDB"
+
+
+def test_parser_ignores_hours_that_look_like_remote_aliases():
+    text = """
+    Inicio=00:00
+    Atualizacao=08:35
+    Database=localhost:C:\\Dados\\SIAFLOJA.FDB
+    """
+
+    findings = parse_connection_references(text, "siaf.ini")
+
+    assert [(item.host, item.database) for item in findings] == [
+        ("localhost", "C:\\Dados\\SIAFLOJA.FDB")
+    ]

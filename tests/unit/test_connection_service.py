@@ -13,6 +13,7 @@ from siaf_support_toolbox.discovery.models import (
     FirebirdConfigurationFinding,
     MachineMode,
     NetworkFinding,
+    SiafInstallationFinding,
 )
 from siaf_support_toolbox.discovery.schema_classifier import (
     DatabaseType,
@@ -224,3 +225,93 @@ def test_terminal_correlates_reference_with_arbitrary_active_port(tmp_path):
         target.dsn == "10.0.0.10/4050:LOJA01" and target.source == "configuracao_siaf_tcp"
         for target in plan.targets
     )
+
+
+def test_selected_installation_limits_automatic_databases(tmp_path):
+    _database, repository = make_repository(tmp_path)
+    report = make_report("C:/SIAF-A/Dados/SIAFLOJA.FDB")
+    report.databases.append(
+        DatabaseCandidate("D:/SIAF-B/Dados/SIAFLOJA.FDB", "SIAFLOJA", 100, 85)
+    )
+    report.installations = [
+        SiafInstallationFinding(
+            "C:/SIAF-A",
+            ("C:/SIAF-A/SIAFW.EXE",),
+            ("C:/SIAF-A/Dados/SIAFLOJA.FDB",),
+            active=True,
+            confidence=95,
+        ),
+        SiafInstallationFinding(
+            "D:/SIAF-B",
+            ("D:/SIAF-B/SIAFW.EXE",),
+            ("D:/SIAF-B/Dados/SIAFLOJA.FDB",),
+            confidence=70,
+        ),
+    ]
+    repository.record_discovery("SERVIDOR", report)
+
+    plan = FirebirdConnectionService(repository, machine_name="SERVIDOR").build_plan(
+        report,
+        installation_root="D:/SIAF-B",
+    )
+
+    assert [target.database_path for target in plan.targets] == [
+        "D:/SIAF-B/Dados/SIAFLOJA.FDB"
+    ]
+    assert plan.targets[0].installation_root == "D:/SIAF-B"
+
+
+def test_validation_retries_next_client_only_for_library_failure(tmp_path):
+    _database, repository = make_repository(tmp_path)
+    report = make_report("D:/Dados/SIAFLOJA.FDB")
+    report.client_libraries = [
+        ClientLibraryFinding(
+            "C:/Firebird/bad/gds32.dll",
+            "gds32.dll",
+            Architecture.X86,
+            True,
+            True,
+            "2.5.9.27139",
+        ),
+        ClientLibraryFinding(
+            "C:/Firebird/good/fbclient.dll",
+            "fbclient.dll",
+            Architecture.X86,
+            True,
+            True,
+            "2.5.9.27139",
+        ),
+    ]
+    repository.record_discovery("SERVIDOR", report)
+    calls: list[str] = []
+
+    def probe(**kwargs):
+        calls.append(kwargs["client_library"])
+        if kwargs["client_library"].endswith("fbclient.dll"):
+            return accepted_result()
+        return FirebirdProbeResult(
+            False,
+            None,
+            None,
+            "client_library_incompatible",
+            "DLL inválida",
+        )
+
+    service = FirebirdConnectionService(repository, machine_name="SERVIDOR", probe=probe)
+    plan = service.build_plan(report)
+    target = replace(
+        plan.targets[0],
+        client_library="C:/Firebird/bad/gds32.dll",
+        fallback_client_libraries=("C:/Firebird/good/fbclient.dll",),
+    )
+
+    summary = service.validate(
+        replace(plan, targets=(target,)),
+        SessionCredentials("SUPORTE", "TEMPORARIA"),
+    )
+
+    assert calls == [
+        "C:/Firebird/bad/gds32.dll",
+        "C:/Firebird/good/fbclient.dll",
+    ]
+    assert summary.successful[0].target.client_library.endswith("fbclient.dll")
