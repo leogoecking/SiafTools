@@ -20,6 +20,13 @@ from siaf_support_toolbox.discovery.models import (  # noqa: E402
     MachineMode,
     ProcessFinding,
 )
+from siaf_support_toolbox.fiscal.nfe_xml_reader import (  # noqa: E402
+    NFeDocument,
+    NFeField,
+    NFeItem,
+    NFeParty,
+    NFeXmlError,
+)
 from siaf_support_toolbox.repositories.local_repository import LocalRepository  # noqa: E402
 from siaf_support_toolbox.services.query_execution_service import (  # noqa: E402
     QueryExecutionService,
@@ -37,6 +44,12 @@ from siaf_support_toolbox.ui.dialogs.connection_dialog import (  # noqa: E402
     ManualConnectionDialog,
 )
 from siaf_support_toolbox.ui.dialogs.message_dialog import MessageDialog  # noqa: E402
+from siaf_support_toolbox.ui.dialogs.supplier_return_mirror_dialog import (  # noqa: E402
+    SupplierReturnMirrorDialog,
+)
+from siaf_support_toolbox.ui.dialogs.supplier_return_preparation_dialog import (  # noqa: E402
+    SupplierReturnPreparationDialog,
+)
 from siaf_support_toolbox.ui.main_window import MainWindow  # noqa: E402
 from siaf_support_toolbox.ui.navigation import NAVIGATION_ITEMS  # noqa: E402
 from siaf_support_toolbox.ui.preferences import WindowPreferencesStore  # noqa: E402
@@ -121,6 +134,142 @@ def main() -> int:
     )
     all_standard_templates_unlimited = all(
         template.result_limit is None for template in window.query_page._templates
+    )
+    diagnostic_document = NFeDocument(
+        access_key="35260712345678000123550010000001231000001234",
+        protocol_number="135260000000123",
+        protocol_status="100",
+        authorization_datetime="2026-07-26T10:01:00-03:00",
+        model="55",
+        series="1",
+        number="123",
+        issue_datetime="2026-07-26T10:00:00-03:00",
+        issuer=NFeParty("12345678000123", "FORNECEDOR TESTE", "123", "SP"),
+        recipient=NFeParty("98765432000198", "EMPRESA CLIENTE", "987", "MG"),
+        items=(
+            NFeItem(
+                number=1,
+                product_code="ABC-1",
+                barcode="7891234567890",
+                description="PRODUTO DE TESTE",
+                ncm="12345678",
+                cest="1234567",
+                cfop="6102",
+                unit="UN",
+                quantity=Decimal("2.0000"),
+                unit_value=Decimal("50.00"),
+                product_value=Decimal("100.00"),
+                discount=None,
+                freight=None,
+                insurance=None,
+                other_expenses=None,
+                tax_fields=(
+                    NFeField(
+                        "imposto.ICMS.ICMS00.pICMS",
+                        "Alíquota de ICMS",
+                        "12.0000",
+                    ),
+                ),
+            ),
+        ),
+        total_fields=(NFeField("total.ICMSTot.vNF", "Total da NF-e", "100.00"),),
+    )
+    window.diagnostic_page.render_document(diagnostic_document, "entrada.xml")
+    diagnostic_selection_ready = (
+        window.diagnostic_page.document is diagnostic_document
+        and len(window.diagnostic_page.tree.get_children()) == 1
+        and window.diagnostic_page.summary_vars["file"].get() == "entrada.xml"
+        and "imposto.ICMS.ICMS00.pICMS" in window.diagnostic_page.details.get("1.0", "end")
+    )
+    icms_comparison = next(
+        field
+        for field in window.diagnostic_page.comparison.fields
+        if field.path == "imposto.ICMS.ICMS00.pICMS"
+    )
+    mirror_dialog = SupplierReturnMirrorDialog(
+        window,
+        "Espelho do item 1",
+        (icms_comparison,),
+    )
+    mirror_dialog.withdraw()
+    mirror_entry = mirror_dialog._entries["imposto.ICMS.ICMS00.pICMS"]
+    mirror_entry.delete(0, "end")
+    mirror_entry.insert(0, "18,00")
+    mirror_dialog._submit()
+    mirror_dialog_ok = mirror_dialog.result == {
+        "imposto.ICMS.ICMS00.pICMS": "18.00"
+    }
+    window.diagnostic_page.apply_item_changes(1, mirror_dialog.result or {})
+    diagnostic_manual_comparison_ready = (
+        window.diagnostic_page.has_manual_changes
+        and window.diagnostic_page.comparison.different_count == 1
+        and "1 divergência(s)"
+        in window.diagnostic_page.tree.item("1", "values")[-1]
+        and "Espelho=18.00" in window.diagnostic_page.details.get("1.0", "end")
+    )
+    window.diagnostic_page.apply_total_changes({"total.ICMSTot.vNF": "105,00"})
+    diagnostic_total_comparison_ready = (
+        window.diagnostic_page.comparison.different_count == 2
+        and any(
+            field.path == "total.ICMSTot.vNF" and field.mirror_value == "105.00"
+            for field in window.diagnostic_page.comparison.fields
+        )
+    )
+    window.diagnostic_page._confirm_discard = lambda: False
+    diagnostic_manual_changes_protected = (
+        not window.diagnostic_page.load_xml("C:/dados/outro.xml")
+        and window.diagnostic_page.document is diagnostic_document
+        and window.diagnostic_page.has_manual_changes
+    )
+    window.diagnostic_page._confirm_discard = lambda: True
+    window.diagnostic_page.reset_mirror()
+    diagnostic_mirror_reset = (
+        not window.diagnostic_page.has_manual_changes
+        and window.diagnostic_page.comparison.matches
+    )
+    preparation_dialog = SupplierReturnPreparationDialog(
+        window,
+        diagnostic_document,
+        window.diagnostic_page.preparation,
+    )
+    preparation_dialog.withdraw()
+    preparation_dialog.tree.selection_set("1")
+    preparation_dialog._toggle_selected_item()
+    preparation_dialog._analyze()
+    preparation_dialog_rendered = (
+        preparation_dialog.preparation.selected_items[0].item_number == 1
+        and "Mercadoria calculada" in preparation_dialog.analysis_text.get("1.0", "end")
+    )
+    analysis_was_current = preparation_dialog.analysis_is_current
+    preparation_dialog._toggle_selected_item()
+    preparation_analysis_invalidated = (
+        analysis_was_current
+        and not preparation_dialog.analysis_is_current
+        and "Valores alterados"
+        in preparation_dialog.analysis_text.get("1.0", "end")
+    )
+    preparation_dialog._toggle_selected_item()
+    preparation_dialog._save()
+    prepared_result = preparation_dialog.result
+    window.diagnostic_page._preparation_editor = (
+        lambda _parent, _document, _current: prepared_result
+    )
+    window.diagnostic_page.prepare_return()
+    diagnostic_preparation_ready = (
+        window.diagnostic_page.preparation is prepared_result
+        and window.diagnostic_page.has_manual_changes
+        and "1 item(ns)" in window.diagnostic_page.summary_vars["preparation"].get()
+    )
+
+    def invalid_xml_reader(_path):
+        raise NFeXmlError("invalid_xml", "O arquivo não contém um XML válido.")
+
+    window.diagnostic_page._xml_reader = invalid_xml_reader
+    diagnostic_invalid_xml_clears_previous = (
+        not window.diagnostic_page.load_xml("C:/dados/sensivel.xml")
+        and window.diagnostic_page.document is None
+        and not window.diagnostic_page.tree.get_children()
+        and "sensivel.xml" not in window.diagnostic_page.status_var.get()
     )
     window.query_page.clear_results()
     stale_query_result_cleared = not window.query_page.tree.get_children()
@@ -224,6 +373,26 @@ def main() -> int:
                 "phase_eight_unlimited_results": phase_eight_unlimited_results,
                 "phase_nine_templates_ready": phase_nine_templates_ready,
                 "all_standard_templates_unlimited": all_standard_templates_unlimited,
+                "diagnostic_selection_ready": diagnostic_selection_ready,
+                "mirror_dialog_ok": mirror_dialog_ok,
+                "diagnostic_manual_comparison_ready": (
+                    diagnostic_manual_comparison_ready
+                ),
+                "diagnostic_total_comparison_ready": (
+                    diagnostic_total_comparison_ready
+                ),
+                "diagnostic_manual_changes_protected": (
+                    diagnostic_manual_changes_protected
+                ),
+                "diagnostic_mirror_reset": diagnostic_mirror_reset,
+                "preparation_dialog_rendered": preparation_dialog_rendered,
+                "preparation_analysis_invalidated": (
+                    preparation_analysis_invalidated
+                ),
+                "diagnostic_preparation_ready": diagnostic_preparation_ready,
+                "diagnostic_invalid_xml_clears_previous": (
+                    diagnostic_invalid_xml_clears_previous
+                ),
                 "stale_export_actions_disabled": stale_export_actions_disabled,
                 "stale_output_file_cleared": stale_output_file_cleared,
                 "stale_header_cleared": stale_header_cleared,

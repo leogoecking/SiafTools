@@ -29,7 +29,7 @@ NAVIGATION_ITEMS = (
         "diagnostics",
         "Diagnósticos",
         "Diagnósticos",
-        "Disponível em uma fase futura.",
+        "Pré-análise somente leitura de devolução ao fornecedor.",
     ),
     NavigationItem("reports", "Relatórios", "Relatórios", "Disponível em uma fase futura."),
     NavigationItem(

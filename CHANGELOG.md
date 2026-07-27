@@ -346,3 +346,132 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 - Onze regressões ampliam a suíte para 194 testes automatizados; Ruff permanece aprovado.
 - Executável x86 reconstruído e aprovado em perfil isolado: migration 6, 22 templates sem
   limite, integridade SQLite válida, `errors.log` vazio e nenhum processo remanescente.
+
+### Planejamento revisado em 2026-07-26
+
+- Roadmap 1.2 reposiciona consultas básicas como infraestrutura de validação e define
+  diagnósticos cruzados, comparação entre lojas e automações de suporte como diferenciais do
+  produto.
+- Novos recursos passam a exigir uma limitação real do SIAF, tabelas e relacionamentos
+  comprovados, evidências verificáveis, classificação de risco e caso de homologação.
+- Fase 10 passa a priorizar diagnósticos avançados envolvendo múltiplas tabelas; Fase 11 limita
+  relatórios a exceções, cruzamentos e evidências que não apenas reproduzam telas do ERP.
+- Comparação entre lojas ganha identificação persistente de origem/destino, classificação de
+  conflitos, processamento progressivo e plano reutilizável como prévia.
+- Operações controladas devem decidir e homologar estratégia transacional atômica ou retomável
+  antes da escrita em grandes lotes.
+- Cópia de produtos passa a exigir simulação, backup validado, seleção explícita de campos,
+  preservação padrão de registros existentes, validação posterior e relatório por produto.
+
+### Fase 9 encerrada com homologação parcial em 2026-07-26
+
+- O responsável pelo produto encerrou formalmente a Fase 9 após executar uma consulta de contas
+  a receber no ambiente do cliente.
+- A execução comprovou o fluxo do módulo, mas não foi registrada como conferência funcional
+  completa dos valores retornados.
+- Contas a pagar, caixa, transferências, tipos de venda/pagamento, usuários, grupos, programas,
+  permissões e exportações permanecem como limitações de homologação conhecidas.
+- Templates não conferidos continuam disponíveis em modo somente leitura, mas não podem
+  fundamentar novas regras de negócio sem validação em um caso real.
+- O encerramento parcial permite iniciar o planejamento da Fase 10 sem ocultar a dívida de
+  homologação de campo.
+
+### Fase 10 iniciada em 2026-07-26
+
+- Primeiro diagnóstico avançado prioriza devoluções de compra ao fornecedor quando a nota
+  espelho recebida por mensagem ou imagem não coincide com o XML original ou com o cadastro
+  atual.
+- Leitor local aceita `nfeProc` e `NFe` modelo 55, valida chave, limita o arquivo a 20 MB e
+  bloqueia DTD e entidades XML.
+- Emitente, destinatário, itens, valores, tributos e totais são extraídos sem persistir o
+  conteúdo fiscal ou enviá-lo aos logs.
+- Campos tributários são preservados dinamicamente, sem inferir o significado de grupos ainda
+  não homologados.
+- O espelho manual é pré-preenchido a partir do XML e permite alterar somente os campos
+  informados pelo fornecedor.
+- Comparação distingue valores iguais, divergentes, ausentes e itens ausentes, normalizando
+  apenas representações decimais equivalentes.
+- Espelho associado a outra chave de acesso é bloqueado.
+- Dezesseis testes focados aprovam parsing, segurança, modelo, limite, extração,
+  pré-preenchimento, comparação e bloqueio de itens duplicados.
+
+### Incremento 10.2 — seleção do XML
+
+- A página **Diagnósticos** deixa de ser placeholder e recebe o fluxo de devolução ao
+  fornecedor.
+- O atendente pode selecionar localmente o XML da nota de entrada e visualizar chave, número,
+  série, fornecedor, destinatário e quantidade de itens.
+- A grade apresenta identificação, NCM, CFOP, unidade, quantidade e valor dos produtos; o painel
+  inferior preserva todos os campos tributários encontrados no item.
+- A interface exibe apenas o nome do arquivo, sem revelar seu caminho completo.
+- Uma nova seleção limpa o resultado anterior antes da validação, impedindo que XML inválido
+  deixe dados fiscais obsoletos na tela.
+- Erros são apresentados sem incluir caminho, conteúdo fiscal ou dados do documento.
+- A limpeza manual remove o documento da sessão e desabilita as ações dependentes.
+- Testes de apresentação e smoke do Tkinter validam a nova página nos temas suportados.
+
+### Incremento 10.3 — edição manual do espelho
+
+- XML importado gera um espelho pré-preenchido mantido somente em memória.
+- Diálogo rolável apresenta nome e caminho técnico do campo, valor original e entrada manual do
+  fornecedor lado a lado.
+- Itens e totais podem ser editados separadamente sem alterar o documento original.
+- Vírgulas decimais são aceitas e normalizadas; conteúdo não numérico é bloqueado nos campos de
+  quantidade, percentual e valor.
+- A grade mostra a quantidade de divergências de cada item e o resumo separa diferenças dos
+  itens e dos totais.
+- O painel de detalhes identifica exatamente o valor do XML e o valor informado no espelho.
+- Ação de restauração recompõe integralmente o espelho a partir do XML.
+- Limpeza ou substituição de espelho alterado exige confirmação explícita.
+- Valores manuais são apresentados como informação do fornecedor e nunca como decisão fiscal
+  automática.
+- Suíte completa ampliada para 215 testes; Ruff e runtime Python 3.11.9 x86 aprovados.
+
+### Incremento 10.4 — protocolo autorizado e campos próprios da devolução
+
+- Importação fiscal passa a exigir `nfeProc` no namespace oficial, versão 4.00 e protocolo
+  SEFAZ com status autorizado (`100` ou `150`).
+- Chave de `infNFe/@Id` e `protNFe/infProt/chNFe` precisa ser idêntica; divergência bloqueia o
+  documento antes da exibição.
+- Número do protocolo e data de recebimento passam a ser obrigatórios, e o protocolo validado
+  fica visível no resumo da nota.
+- Elemento `NFe` isolado, XML sem protocolo, status rejeitado, versão incompatível e namespace
+  não oficial são recusados com mensagens sem dados fiscais sensíveis.
+- Esquema manual versionado inclui indicador de devolução, percentual devolvido e valor do IPI
+  devolvido mesmo quando esses campos não existem na nota original.
+- Campos `impostoDevol` já existentes no XML também são preservados, sem duplicação no espelho.
+- Valor informado somente no espelho recebe o estado explícito
+  `informado_apenas_no_espelho` e exige conferência fiscal.
+- Suíte ampliada para 227 testes: 226 testes não visuais aprovados e smoke Tkinter pendente
+  neste computador porque o executável Python x86 vinculado ao `.venv` não está mais presente.
+
+### Incremento 10.5 — preparação manual e análise orientada
+
+- Nova ação **Preparar devolução** permite selecionar somente os itens devolvidos e informar
+  quantidade e preço unitário sem alterar o XML original.
+- Quantidade maior que a nota de entrada, valores negativos, `NaN`, infinito e notação
+  científica são bloqueados antes da análise.
+- ICMS, redução e IPI podem ser informados por item nas colunas **Espelho** e **SIAF atual**.
+- Formulário de totais reúne mercadoria, desconto, frete, seguro, embalagem, despesas
+  acessórias, acréscimo, bonificação, complemento, ICMS, IPI, ST/retido e total da nota.
+- Motor compara diretamente os valores informados, reconcilia os itens selecionados e testa
+  composições aritméticas sem declarar que a regra fiscal está correta.
+- Orientações são classificadas em `comprovado`, `possivel_causa` e
+  `pendente_confirmacao`.
+- Mapeamentos visuais homologados apontam para `%RED.`, `%ICMS`, `%IPI`, `Vr. Merc.`,
+  `Base ICMS`, `Vr. ICMS`, `Base Subst.`, `Vr. Subst.` e `Total Nota`.
+- Embalagem continua apontando **Desp.Acess.** ou **Acréscimo** apenas como hipótese; divergência
+  de ST orienta a conferência de MVA, ICMS débito e ICMS substituição por UF no cadastro.
+- Preparação permanece somente em memória, é protegida contra descarte acidental e não abre
+  conexão nem realiza escrita no SIAF.
+- O total original do item passa a preservar o `vProd` do XML; devoluções parciais são
+  recalculadas e o total solicitado pelo fornecedor pode ser informado manualmente.
+- A composição do ICMS aplica a redução antes da alíquota de cada item, aceita múltiplas
+  alíquotas sem agregá-las e bloqueia despesas sem rateio conhecido entre configurações fiscais
+  diferentes.
+- Qualquer edição posterior invalida visualmente a análise anterior e exige nova análise.
+- O formulário distingue os totais do **XML completo** dos valores da **Seleção atual**.
+- Embalagem deixou de ser um campo editável inexistente no SIAF e orienta a conferência em
+  **Desp.Acess.** ou **Acréscimo**.
+- Suíte ampliada para 244 testes: 243 testes não visuais aprovados e smoke Tkinter pendente
+  devido ao runtime x86 ausente neste computador.

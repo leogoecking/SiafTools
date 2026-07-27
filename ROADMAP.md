@@ -3,6 +3,10 @@
 > Documento mestre para desenvolvimento com Codex de uma aplicação desktop Windows (`.exe`) destinada ao suporte técnico do ERP SIAF, com descoberta automática do ambiente Firebird e acesso controlado às bases.
 >
 > **Revisão 1.1:** o aplicativo será executado no próprio computador do cliente. O fluxo principal não solicita host, porta ou caminho; esses dados são detectados automaticamente.
+>
+> **Revisão 1.2:** consultas básicas passam a ser tratadas como infraestrutura de validação. O
+> diferencial do produto são diagnósticos cruzados, comparação entre lojas e automações de
+> suporte que o SIAF não oferece diretamente ou que exigem trabalho manual repetitivo.
 
 ## Metadados do projeto
 
@@ -22,8 +26,8 @@
 | Banco interno | SQLite |
 | Empacotamento | PyInstaller |
 | Base de conhecimento usada | SIAF consolidada v1.0 |
-| Versão deste documento | **1.1 — Execução local e autodetecção** |
-| Data deste documento | 2026-07-18 |
+| Versão deste documento | **1.2 — Diagnósticos, comparação e automações** |
+| Data deste documento | 2026-07-26 |
 
 > **Premissa revisada:** o atendente não deverá cadastrar host, porta e caminho da base para o uso comum. Ao abrir o `.exe`, a ferramenta deverá inspecionar o computador, identificar como o SIAF está instalado/conectado e apresentar automaticamente as bases disponíveis. A configuração manual será apenas um recurso de contingência.
 
@@ -36,6 +40,12 @@
 Criar uma ferramenta gráfica portátil para apoiar atendimentos do SIAF diretamente no computador do cliente. Ao ser aberta, a ferramenta deverá descobrir automaticamente o ambiente local, identificar o Firebird utilizado pelo SIAF, localizar as bases disponíveis e estabelecer uma conexão segura em modo somente leitura.
 
 A ferramenta deve reduzir o uso de SQL manual, padronizar procedimentos, evitar comandos perigosos, registrar auditoria e apresentar informações técnicas de forma simples para o atendente.
+
+A ferramenta não pretende substituir o SIAF nem reproduzir indiscriminadamente consultas e
+relatórios que o ERP já oferece. Consultas básicas existem para validar conexão, esquema,
+segurança, paginação e exportação e para fornecer contexto aos recursos avançados. A prioridade
+funcional é cruzar informações, detectar inconsistências, comparar lojas e automatizar
+procedimentos de suporte que hoje dependem de várias telas ou ações manuais repetitivas.
 
 ### Fluxo esperado pelo atendente
 
@@ -66,12 +76,28 @@ Consultas, diagnósticos e relatórios ficam disponíveis
 - Descobrir automaticamente `SIAFW.FDB` e todas as bases `SIAFLOJA.FDB`.
 - Identificar o servidor remoto utilizado pelo SIAF quando a ferramenta for executada em um terminal.
 - Conectar com segurança às bases encontradas.
-- Consultar produtos, clientes, fornecedores, notas, entradas, PDV, financeiro, usuários e permissões.
-- Gerar diagnósticos automáticos e relatórios exportáveis.
+- Consultar produtos, clientes, fornecedores, notas, entradas, PDV, financeiro, usuários e permissões como base para investigações avançadas.
+- Gerar diagnósticos automáticos com cruzamentos, evidências e relatórios de exceção exportáveis.
 - Comparar duas lojas sem alterar dados.
 - Processar bases grandes em lotes, evitando erros de memória.
 - Disponibilizar operações controladas somente após validação, backup, prévia e confirmação.
 - Manter uma arquitetura preparada para ampliar a biblioteca de consultas e soluções do SIAF.
+
+### Critério de valor para novos recursos
+
+Uma nova consulta, diagnóstico, relatório ou automação só entra no roadmap de implementação
+quando documentar:
+
+- qual limitação do SIAF ou atividade manual repetitiva resolve;
+- quais telas, etapas ou consultas manuais substitui ou complementa;
+- quais tabelas, campos e relacionamentos foram confirmados no esquema real;
+- quais evidências serão exibidas para que o atendente confira o resultado;
+- se o recurso é somente leitura ou prepara uma operação controlada;
+- o risco cadastral, fiscal, financeiro, de estoque ou de permissões;
+- um caso real e mensurável para homologação.
+
+Relatórios básicos já disponíveis no SIAF só serão implementados quando forem necessários como
+parte de um diagnóstico, comparação, automação ou evidência que o sistema original não entregue.
 
 ### Fora do escopo inicial
 
@@ -779,6 +805,11 @@ Como Firebird 2.5 trabalha com `FIRST` e `SKIP`, a paginação deve ser implemen
 
 ## 10. Módulos funcionais
 
+Os módulos abaixo são fontes de dados e contextos de suporte. A implementação não deve
+reproduzir automaticamente cada consulta ou menu existente no SIAF. A prioridade é selecionar
+casos que atendam ao critério de valor da seção 1 e produzir cruzamentos, exceções ou automações
+comprovadamente úteis.
+
 ### 10.1 Produtos e estoque
 
 - Busca por código, nome, referência, barra, GTIN, grupo e fornecedor.
@@ -912,6 +943,18 @@ Como Firebird 2.5 trabalha com `FIRST` e `SKIP`, a paginação deve ser implemen
 - Referências de fornecedor potencialmente incorretas.
 - Vendas/PDV com status ou terminal que merecem análise.
 
+### Investigações avançadas
+
+- Cruzar dados de duas ou mais relações somente quando o vínculo estiver confirmado no snapshot
+  estrutural e em um caso real.
+- Identificar registros sem correspondência, vínculos divergentes e configurações incompatíveis
+  que exijam hoje a conferência de várias telas do SIAF.
+- Permitir abrir o conjunto de registros que originou cada alerta.
+- Informar consulta, parâmetros, base, tabelas envolvidas e evidências, sem expor credenciais.
+- Separar fato observado, hipótese de suporte e regra de negócio confirmada.
+- Não interpretar códigos, situações ou efeitos fiscais/financeiros sem validação no SIAF.
+- Gerar uma saída reutilizável em atendimento ou ticket.
+
 ### Classificação dos resultados
 
 | Nível | Significado |
@@ -925,23 +968,21 @@ Como Firebird 2.5 trabalha com `FIRST` e `SKIP`, a paginação deve ser implemen
 
 ## 12. Relatórios e exportações
 
-### Relatórios prioritários
+### Relatórios diferenciais prioritários
 
-- Estoque atual.
-- Movimento de produtos.
-- Produtos sem movimentação.
-- Produtos com estoque negativo/zero.
-- Tabela de preços e custos.
-- Vendas por período, produto, cliente, vendedor, grupo e fornecedor.
-- Notas por CFOP.
-- Entradas por fornecedor e produto.
-- Contas a receber e a pagar.
-- Caixa diário.
-- Comparativo mensal.
-- Curva ABC.
-- Margem e preço abaixo do custo.
-- Permissões por grupo/programa.
+- Relatórios de exceções e inconsistências produzidos pelos diagnósticos.
+- Cruzamentos que o SIAF não apresente em uma única consulta.
+- Consolidação e comparação entre lojas.
+- Evidências técnicas para atendimento ou ticket.
+- Resultado anterior e posterior de uma automação controlada.
+- Produtos sem movimentação, negativos/zerados ou abaixo do custo apenas quando o relatório
+  acrescentar cruzamentos, causas possíveis ou comparação ausentes no SIAF.
+- Permissões por usuário, grupo e programa com indicação da evidência que bloqueia uma rotina.
 - Diagnóstico técnico da base.
+
+Estoque atual, movimento, vendas, notas, entradas, contas, caixa e outros relatórios básicos não
+serão duplicados apenas para reproduzir telas existentes. Eles poderão ser fontes ou abas
+auxiliares de uma investigação avançada.
 
 ### Regras de exportação
 
@@ -981,6 +1022,21 @@ O módulo deve operar em leitura e processar cada base em lotes.
 - Exportação XLSX/CSV.
 - Seleção manual para uma operação futura.
 - Nenhuma alteração direta na fase de comparação.
+- Origem e destino identificados de forma persistente e inequívoca.
+- Plano de comparação reutilizável como prévia de uma futura operação controlada.
+
+### Barreiras de segurança
+
+- Validar conexão e snapshot estrutural completo das duas bases antes de comparar.
+- Abrir uma conexão somente leitura independente para cada base e processar ambas em lotes.
+- Nunca inferir equivalência apenas pela posição ou quantidade de campos.
+- Bloquear a comparação quando a identidade do cadastro ou os campos necessários não puderem
+  ser comprovados.
+- Manter origem e destino visíveis e testar defensivamente que nunca sejam invertidos.
+- Permitir filtros por código, grupo e situação somente quando os campos existirem no esquema
+  validado.
+- Classificar cada linha como exclusiva da origem, exclusiva do destino, equivalente, divergente
+  ou bloqueada por conflito estrutural.
 
 ---
 
@@ -1058,11 +1114,35 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 - Comparar estruturas das duas DSIAF006.
 - Copiar somente campos comuns e autorizados.
 - Validar PRO_COD e PRO_EST.
+- Iniciar sempre em modo de simulação, sem escrita, e apresentar a quantidade prevista.
+- Exibir origem e destino durante seleção, prévia, confirmação, execução e relatório final.
+- Preservar produtos existentes no destino por padrão.
+- Exigir seleção explícita de cada grupo de campos que poderá ser copiado.
+- Bloquear campos desconhecidos, incompatíveis, calculados ou não autorizados.
+- Validar dependências somente a partir do esquema e dos relacionamentos comprovados.
+- Exigir backup concluído e validado antes de habilitar a confirmação da escrita.
 - Processar por `fetchmany()` e `executemany()`.
 - Commit por lote apenas em operação explicitamente configurada; manter relatório detalhado.
 - Interromper em erro e preservar o último lote confirmado.
+- Registrar checkpoints suficientes para identificar lotes confirmados e retomar sem duplicar
+  produtos ou reaplicar campos indevidamente.
+- Validar o resultado com uma nova consulta e classificar cada produto como copiado, ignorado,
+  conflitante ou com erro.
 - Não copiar notas, vendas, entradas, PDV, financeiro ou histórico de movimentação.
 - Alertar que copiar apenas PRO_EST pode causar divergência com o histórico; exigir decisão explícita.
+
+### Estratégia transacional pendente
+
+Antes da implementação da escrita, a Fase 15 deve escolher e homologar explicitamente entre:
+
+- uma operação atômica, com um único `COMMIT` ou `ROLLBACK` para todo o conjunto; ou
+- uma operação retomável, em que cada lote é uma transação atômica, possui checkpoint persistido
+  e deixa qualquer conclusão parcial claramente visível.
+
+O modo retomável não pode ser tratado como rollback global. Uma falha após lotes confirmados deve
+gerar estado parcial, impedir uma nova execução cega e orientar retomada ou análise. A decisão
+será tomada em cópias de bases representativas, considerando volume, tempo e comportamento do
+Firebird 2.5.7.
 
 ---
 
@@ -1339,7 +1419,7 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 ### Fase 9 — Financeiro e permissões
 
-> **Em homologação desde 2026-07-19.** O snapshot real confirmou as relações financeiras na
+> **Encerrada com homologação parcial em 2026-07-26.** O snapshot real confirmou as relações financeiras na
 > `SIAFLOJA.FDB` e usuários/permissões na `SIAFW.FDB`. Foram adicionados dez templates somente
 > leitura para títulos, caixa, transferências, tipos de venda/pagamento, usuários, grupos,
 > programas e permissões. Os códigos são exibidos como armazenados e `USU_SENHA` não é
@@ -1347,8 +1427,10 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 > usuários do grupo, preservou `DSIAF016.PRA_COD` sem interpretação funcional, passou a auditar
 > resultados truncados e normalizou espaços nos filtros. Após a prova dos relatórios, todos os
 > templates padrão passaram a retornar o conjunto completo, ainda com filtros obrigatórios e
-> leitura progressiva. A conclusão depende da conferência de casos reais no SIAF. Consulte
-> `docs/phase-9-status.md`.
+> leitura progressiva. Uma consulta de contas a receber foi executada no ambiente do cliente,
+> comprovando o fluxo, mas seus valores e os outros nove templates não receberam homologação
+> funcional completa. O responsável pelo produto aceitou formalmente esse escopo parcial para
+> priorizar diagnósticos que complementem o SIAF. Consulte `docs/phase-9-status.md`.
 
 **Entregas:**
 
@@ -1358,45 +1440,77 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 **Critérios de aceite:**
 
-- Consultas validadas em casos reais.
+- Implementação, barreiras de segurança e fluxo de contas a receber exercitados.
+- Homologação parcial aceita formalmente, com casos não conferidos registrados como limitações.
+- Templates não homologados não podem fundamentar regras de negócio sem nova conferência.
 
-### Fase 10 — Diagnóstico automático
+### Fase 10 — Diagnósticos avançados
+
+> **Iniciada em 2026-07-26.** O primeiro problema real priorizado é a devolução de compra ao
+> fornecedor quando os valores do espelho recebido por mensagem ou imagem não coincidem com o
+> XML original ou com os cadastros atuais. O incremento 10.1 implementa leitura segura do XML
+> NF-e modelo 55, espelho manual pré-preenchido e comparação determinística. O incremento 10.2
+> integra a seleção local à página Diagnósticos, apresenta resumo e itens e limpa resultados
+> anteriores quando uma nova seleção falha. O incremento 10.3 permite editar itens e totais do
+> espelho, destaca divergências, aceita decimais brasileiros e protege alterações contra
+> descarte acidental. O incremento 10.4 exige protocolo SEFAZ autorizado e correspondente à
+> chave da nota, além de acrescentar ao espelho os campos próprios de devolução mesmo quando
+> ausentes no XML de entrada. O incremento 10.5 permite selecionar itens e quantidades, digitar
+> manualmente o espelho e o resultado atual do SIAF e receber uma análise aritmética classificada
+> como fato, possível causa ou pendência de confirmação. A estabilização do incremento preserva
+> o `vProd`, calcula ICMS e redução por item, trata alíquotas diferentes, invalida resultados
+> após edições e separa os totais do XML completo dos valores da seleção atual. A comparação com
+> os cadastros atuais permanece pendente e não há acesso de escrita. Consulte
+> `docs/phase-10-status.md`.
 
 **Entregas:**
 
-- Checks de banco, produtos, fiscal, financeiro e permissões.
-- Classificação de alertas.
-- Relatório técnico.
+- Checks de banco, produtos, fiscal, financeiro e permissões orientados a problemas reais.
+- Primeiro cruzamento entre múltiplas tabelas para resolver uma limitação comprovada do SIAF.
+- Classificação de alertas com separação entre fato, hipótese e regra confirmada.
+- Detalhamento dos registros e evidências que originaram cada alerta.
+- Relatório técnico reutilizável em atendimento ou ticket.
 
 **Critérios de aceite:**
 
-- Diagnóstico gera resumo e evidências.
+- Diagnóstico gera resumo, evidências e acesso aos registros envolvidos.
+- Tabelas, campos e relacionamentos são conferidos no snapshot antes da execução.
+- Um caso real confirma que o diagnóstico reduz etapas manuais existentes no SIAF.
+- Nenhum código ou efeito operacional é interpretado sem validação.
 
-### Fase 11 — Relatórios
+### Fase 11 — Relatórios de exceção e suporte
 
 **Entregas:**
 
-- Modelos configuráveis.
+- Modelos configuráveis para cruzamentos, exceções e evidências.
 - Exportação progressiva.
 - Parâmetros e abas auxiliares.
+- Integração com resultados dos diagnósticos.
+- Exclusão consciente de relatórios que apenas reproduzam uma tela existente no SIAF.
 
 **Critérios de aceite:**
 
 - Exporta volume alto sem estouro de memória.
+- Cada relatório implementado documenta a limitação do SIAF que resolve.
+- O relatório preserva parâmetros, evidências e classificação de alertas.
 
 ### Fase 12 — Comparação entre lojas
 
 **Entregas:**
 
-- Duas conexões.
-- Mapeamento em lotes.
-- Diferenças.
-- Exportação.
+- Duas conexões somente leitura, independentes e identificadas como origem e destino.
+- Validação estrutural e mapeamento em lotes.
+- Produtos exclusivos, equivalentes, divergentes e bloqueados por conflito estrutural.
+- Filtros comprovados no esquema e resumo por tipo de diferença.
+- Exportação e plano reutilizável como prévia da futura cópia.
 
 **Critérios de aceite:**
 
 - Nenhum dado é alterado.
 - Conflitos são identificados.
+- Origem e destino não podem ser invertidos silenciosamente.
+- Base grande é comparada progressivamente sem estouro de memória.
+- O resultado é validado contra uma amostra real das duas lojas.
 
 ### Fase 13 — Base de conhecimento local
 
@@ -1430,24 +1544,39 @@ O módulo deve substituir o comando de cópia que pode gerar `Out of memory` em 
 
 - Framework de prévia, confirmação, transação, rollback e auditoria.
 - Implementar uma operação piloto de baixo escopo.
+- Decidir e homologar a estratégia atômica ou retomável para operações em grandes lotes.
+- Estados explícitos para simulação, pronto, em execução, parcial, concluído, cancelado e falho.
 
 **Critérios de aceite:**
 
 - Sem confirmação não há alteração.
-- Erro provoca rollback.
+- Erro provoca rollback da transação ativa.
+- Backup válido é obrigatório antes da escrita.
+- Operação parcial nunca é apresentada como concluída.
+- Reexecução não duplica nem reaplica silenciosamente registros já confirmados.
 
 ### Fase 16 — Cópia de produtos
 
 **Entregas:**
 
 - Migrar o script de cópia em lotes para a interface.
-- Comparação prévia.
-- Seleção de campos.
-- Relatório de conflitos.
+- Simulação e comparação prévia obrigatórias.
+- Origem e destino persistentes durante todo o fluxo.
+- Seleção explícita de campos e preservação padrão de produtos existentes.
+- Backup validado, execução em lotes e validação posterior.
+- Checkpoints quando a estratégia retomável for homologada.
+- Relatório por produto e relatório de conflitos.
 
 **Critérios de aceite:**
 
 - Base grande é processada sem Out of memory.
+- A primeira homologação ocorre somente em cópias das bases.
+- Nenhuma escrita ocorre no modo de simulação.
+- Campos e dependências não comprovados são bloqueados.
+- Produtos existentes são preservados salvo autorização explícita e específica.
+- Cada produto termina classificado como copiado, ignorado, conflitante ou com erro.
+- Falha, cancelamento ou conclusão parcial são auditados e podem ser explicados ao atendente.
+- O resultado é conferido por nova leitura na base de destino.
 
 ### Fase 17 — Empacotamento e release
 

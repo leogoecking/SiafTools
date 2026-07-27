@@ -1,8 +1,14 @@
-# Fase 9 em homologação — 2026-07-19
+# Fase 9 encerrada com homologação parcial — 2026-07-26
 
 As consultas financeiras e de permissões estão implementadas na página **Consultas**. A fase
 permanece estritamente somente leitura, exige conexão validada e utiliza o snapshot estrutural
 completo antes de abrir cada consulta.
+
+A fase foi encerrada por decisão do responsável pelo produto após a execução de uma consulta de
+contas a receber no ambiente do cliente. Essa execução comprovou o acesso ao módulo e o
+funcionamento do fluxo, mas não representa homologação funcional completa dos dados retornados
+nem dos outros nove templates. O aceite é, portanto, parcial e não deve ser citado como
+validação de todos os casos financeiros e de permissões.
 
 ## Contratos confirmados no esquema real
 
@@ -79,9 +85,9 @@ ainda não tenha sido conferida no SIAF.
 - Artefato: `dist/SIAFSupportToolbox/SIAFSupportToolbox.exe`.
 - SHA-256: `49506B08B5CFF8E07F56A2994121ECD27B9052F2B9FE1573E66AEAE7F8DF12F6`.
 
-## Homologação de campo pendente
+## Escopo não homologado em campo
 
-1. Conferir um título a receber pela duplicata e pelo cliente.
+1. Conferir os valores de um título a receber pela duplicata e pelo cliente contra o SIAF.
 2. Conferir um título a pagar pelo número/fornecedor.
 3. Comparar um dia de caixa e seus lançamentos.
 4. Conferir uma transferência entre caixas.
@@ -90,5 +96,9 @@ ainda não tenha sido conferida no SIAF.
 7. Pesquisar uma rotina conhecida e comparar os cinco campos de permissão na tela do SIAF.
 8. Exportar uma amostra financeira e uma de permissões.
 
-Até essa prova, a Fase 9 permanece em homologação. Nenhuma alteração financeira, permissão ou
-senha foi implementada.
+Esses itens permanecem registrados como limitações conhecidas e poderão ser validados quando
+forem necessários para um diagnóstico avançado ou caso real de suporte. O encerramento parcial
+não autoriza usar resultados não conferidos como regra de negócio.
+
+Nenhuma alteração financeira, permissão ou senha foi implementada. A decisão de encerrar a fase
+não modifica as barreiras de somente leitura, validação estrutural ou proteção de credenciais.

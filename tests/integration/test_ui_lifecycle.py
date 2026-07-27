@@ -31,3 +31,13 @@ def test_hidden_ui_navigates_all_pages_and_closes():
     assert result["settings_visible_at_high_dpi"] is True
     assert result["stale_header_cleared"] is True
     assert result["stale_actions_disabled"] is True
+    assert result["diagnostic_selection_ready"] is True
+    assert result["mirror_dialog_ok"] is True
+    assert result["diagnostic_manual_comparison_ready"] is True
+    assert result["diagnostic_total_comparison_ready"] is True
+    assert result["diagnostic_manual_changes_protected"] is True
+    assert result["diagnostic_mirror_reset"] is True
+    assert result["preparation_dialog_rendered"] is True
+    assert result["preparation_analysis_invalidated"] is True
+    assert result["diagnostic_preparation_ready"] is True
+    assert result["diagnostic_invalid_xml_clears_previous"] is True

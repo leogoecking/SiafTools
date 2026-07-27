@@ -35,7 +35,12 @@ from siaf_support_toolbox.services.schema_inspection_service import (
 )
 from siaf_support_toolbox.ui.dialogs import ask_credentials, ask_manual_connection, show_message
 from siaf_support_toolbox.ui.navigation import NAVIGATION_ITEMS, VALID_PAGE_IDS, navigation_item
-from siaf_support_toolbox.ui.pages import EnvironmentPage, PlaceholderPage, QueryPage
+from siaf_support_toolbox.ui.pages import (
+    EnvironmentPage,
+    PlaceholderPage,
+    QueryPage,
+    SupplierReturnPage,
+)
 from siaf_support_toolbox.ui.preferences import (
     MINIMUM_HEIGHT,
     MINIMUM_WIDTH,
@@ -308,6 +313,9 @@ class MainWindow(tk.Tk):
                 self.query_page = page
                 if self._query_service is not None:
                     self.query_page.set_templates(self._query_service.list_templates())
+            elif item.page_id == "diagnostics":
+                page = SupplierReturnPage(self._page_container)
+                self.diagnostic_page = page
             else:
                 page = PlaceholderPage(self._page_container, item.title, item.description)
             page.grid(row=0, column=0, sticky="nsew")
@@ -366,6 +374,7 @@ class MainWindow(tk.Tk):
         palette = self._theme.apply(theme)
         self.sidebar.set_background(palette.sidebar)
         self.environment_page.apply_palette(palette)  # type: ignore[attr-defined]
+        self.diagnostic_page.apply_palette(palette)  # type: ignore[attr-defined]
         self._refresh_navigation_styles()
 
     def _show_about(self) -> None:

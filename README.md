@@ -3,7 +3,8 @@
 Aplicação desktop Windows para descobrir com segurança um ambiente SIAF/Firebird e, após
 validação, oferecer consultas de suporte em modo somente leitura.
 
-As **Fases 0 a 8 estão concluídas e a Fase 9 está em homologação**. A entrega atual
+As **Fases 0 a 8 estão concluídas, a Fase 9 foi encerrada com homologação parcial e a
+Fase 10 está em desenvolvimento**. A entrega atual
 cobre a fundação do repositório, a interface desktop, o SQLite interno, a descoberta
 automática: arquitetura do processo, processos/serviços, Registro do Windows, configurações
 próximas ao SIAF, bibliotecas cliente Firebird, conexões TCP e candidatos limitados a
@@ -68,6 +69,24 @@ A Fase 9 acrescenta consultas somente leitura de contas a receber, contas a paga
 transferências, tipos de venda/pagamento e diagnóstico de permissões por usuário, grupo e
 programa. Os templates financeiros exigem a `SIAFLOJA.FDB`; usuários e permissões exigem a
 `SIAFW.FDB`. O campo `DSIAF050.USU_SENHA` é deliberadamente excluído das consultas e exportações.
+Uma consulta de contas a receber foi executada no ambiente do cliente; os valores retornados e
+os outros nove templates não foram integralmente conferidos contra o SIAF e permanecem
+documentados como limitações conhecidas.
+
+A Fase 10 começa com um assistente somente leitura para diagnosticar devoluções de compra ao
+fornecedor. O primeiro incremento lê localmente o XML modelo 55 da nota de entrada, extrai itens
+e tributos, cria um espelho pré-preenchido e compara alterações manuais sem afirmar qual
+tributação é correta. A página **Diagnósticos** já permite selecionar o XML e visualizar resumo,
+itens e campos tributários sem exibir o caminho completo do arquivo. Itens e totais do espelho
+podem ser editados manualmente, com destaque das divergências, restauração do XML e confirmação
+antes de descartar alterações. A ação **Preparar devolução** permite escolher os itens e
+quantidades, digitar os valores do espelho e os valores exibidos pelo SIAF e receber uma análise
+classificada entre divergência comprovada, possível causa e pendência de confirmação. Os
+cálculos preservam o total `vProd`, aplicam redução e ICMS por item e sinalizam quando despesas
+precisam de rateio entre alíquotas diferentes. O formulário separa o XML completo da seleção
+atual, e qualquer edição invalida a análise anterior. As reconciliações não afirmam que a
+tributação está correta. A comparação com os cadastros atuais e a exportação serão implementadas
+nos próximos incrementos.
 
 ## Requisito de arquitetura
 
